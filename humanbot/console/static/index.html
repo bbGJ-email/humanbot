@@ -1,0 +1,2206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HumanBot 控制台</title>
+<style>
+:root{
+  --bg:#0f1115; --bg2:#161a21; --bg3:#1d222b; --line:#272d38;
+  --fg:#e6e9ef; --fg2:#9aa3b2; --fg3:#6b7383;
+  --acc:#4c8dff; --acc2:#2f6fe4;
+  --ok:#2ecc71; --warn:#f5a623; --err:#ff5c5c; --pink:#ff6fa5; --purple:#a78bfa;
+  --r:10px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--fg);font:14px/1.55 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+a{color:var(--acc);text-decoration:none}
+button,input,select,textarea{font:inherit;color:inherit}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:#2c3340;border-radius:5px}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ---------- 登录 ---------- */
+#login{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(1200px 600px at 50% -10%,#1b2740 0%,var(--bg) 60%);z-index:100}
+#login .box{width:340px;background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:26px 24px}
+#login h1{margin:0 0 4px;font-size:20px;letter-spacing:.5px}
+#login .sub{color:var(--fg3);font-size:12px;margin-bottom:20px}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:12px;color:var(--fg2);margin-bottom:5px}
+.inp{width:100%;background:var(--bg3);border:1px solid var(--line);border-radius:8px;
+  padding:9px 11px;outline:none;transition:.15s}
+.inp:focus{border-color:var(--acc)}
+select.inp{cursor:pointer}
+textarea.inp{resize:vertical;min-height:70px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px}
+.btn{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:9px 14px;
+  cursor:pointer;transition:.15s;font-weight:500}
+.btn:hover{background:var(--acc2)}
+.btn.full{width:100%}
+.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--fg2)}
+.btn.ghost:hover{border-color:var(--acc);color:var(--fg)}
+.btn.sm{padding:4px 9px;font-size:12px;border-radius:6px}
+.btn.danger{background:#3a1f24;color:#ff9d9d;border:1px solid #5a2a32}
+.btn.danger:hover{background:#4a262d}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.err{color:var(--err);font-size:12px;min-height:17px;margin-top:6px}
+
+/* ---------- 布局 ---------- */
+#app{display:none;height:100vh;grid-template-rows:auto 1fr;grid-template-columns:212px 1fr;
+  grid-template-areas:"brand top" "side main"}
+#app.on{display:grid}
+.brand{grid-area:brand;background:var(--bg2);border-right:1px solid var(--line);
+  border-bottom:1px solid var(--line);padding:0 16px;display:flex;align-items:center;gap:9px;
+  height:52px;font-weight:600;letter-spacing:.4px}
+.brand .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.top{grid-area:top;background:var(--bg2);border-bottom:1px solid var(--line);height:52px;
+  display:flex;align-items:center;gap:12px;padding:0 16px}
+.top .spacer{flex:1}
+.top .pill{background:var(--bg3);border:1px solid var(--line);border-radius:20px;
+  padding:4px 11px;font-size:12px;color:var(--fg2);white-space:nowrap}
+.side{grid-area:side;background:var(--bg2);border-right:1px solid var(--line);
+  overflow-y:auto;padding:10px 8px}
+.nav{display:flex;flex-direction:column;gap:2px}
+.nav a{display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:8px;
+  color:var(--fg2);font-size:13.5px;cursor:pointer}
+.nav a:hover{background:var(--bg3);color:var(--fg)}
+.nav a.on{background:rgba(76,141,255,.13);color:var(--acc);font-weight:500}
+.nav .grp{font-size:11px;color:var(--fg3);padding:12px 11px 5px;letter-spacing:.6px}
+.main{grid-area:main;overflow-y:auto;padding:18px 20px 60px}
+.page{display:none}
+.page.on{display:block}
+h2.pt{font-size:17px;margin:0 0 4px}
+p.pd{color:var(--fg3);font-size:12.5px;margin:0 0 16px}
+
+/* ---------- 卡片 ---------- */
+.card{background:var(--bg2);border:1px solid var(--line);border-radius:var(--r);
+  padding:15px 16px;margin-bottom:14px}
+.card h3{margin:0 0 12px;font-size:13.5px;color:var(--fg);font-weight:600;
+  display:flex;align-items:center;gap:8px}
+.card h3 .tag{font-size:11px;font-weight:400;color:var(--fg3);background:var(--bg3);
+  padding:1px 7px;border-radius:20px;border:1px solid var(--line)}
+.grid{display:grid;gap:13px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+.g4{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+.row{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+.row.between{justify-content:space-between}
+.kv{display:flex;justify-content:space-between;padding:6px 0;font-size:13px;
+  border-bottom:1px dashed var(--line)}
+.kv:last-child{border-bottom:0}
+.kv .k{color:var(--fg2)}
+.kv .v{font-weight:500}
+.big{font-size:24px;font-weight:600;line-height:1.2}
+.lbl{font-size:11.5px;color:var(--fg3);margin-bottom:2px}
+.mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px}
+.muted{color:var(--fg3)}
+.small{font-size:12px}
+
+/* ---------- 徽章 ---------- */
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 8px;
+  border-radius:20px;border:1px solid transparent;white-space:nowrap}
+.b-ok{background:rgba(46,204,113,.14);color:#5fd68e;border-color:rgba(46,204,113,.3)}
+.b-warn{background:rgba(245,166,35,.14);color:#f0b45c;border-color:rgba(245,166,35,.3)}
+.b-err{background:rgba(255,92,92,.14);color:#ff8b8b;border-color:rgba(255,92,92,.3)}
+.b-info{background:rgba(76,141,255,.14);color:#82b0ff;border-color:rgba(76,141,255,.3)}
+.b-gray{background:var(--bg3);color:var(--fg2);border-color:var(--line)}
+.b-pink{background:rgba(255,111,165,.14);color:#ff9dc0;border-color:rgba(255,111,165,.3)}
+.b-purple{background:rgba(167,139,250,.14);color:#c3acfc;border-color:rgba(167,139,250,.3)}
+
+/* ---------- 表格 ---------- */
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;color:var(--fg3);font-weight:500;font-size:11.5px;
+  padding:7px 9px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+tbody tr:hover{background:var(--bg3)}
+.tbl-wrap{overflow-x:auto}
+
+/* ---------- 会话 ---------- */
+.chat-wrap{display:grid;grid-template-columns:270px 1fr;gap:13px;height:calc(100vh - 150px)}
+.chat-list{background:var(--bg2);border:1px solid var(--line);border-radius:var(--r);
+  overflow-y:auto}
+.chat-item{padding:10px 12px;border-bottom:1px solid var(--line);cursor:pointer}
+.chat-item:hover{background:var(--bg3)}
+.chat-item.on{background:rgba(76,141,255,.11);border-left:2px solid var(--acc)}
+.chat-item .t{display:flex;justify-content:space-between;gap:6px;align-items:center}
+.chat-item .n{font-weight:500;font-size:13px}
+.chat-item .p{color:var(--fg3);font-size:11.5px;margin-top:3px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-main{background:var(--bg2);border:1px solid var(--line);border-radius:var(--r);
+  display:flex;flex-direction:column;overflow:hidden}
+.chat-head{padding:10px 14px;border-bottom:1px solid var(--line);display:flex;
+  align-items:center;gap:10px;flex-wrap:wrap}
+.chat-body{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:9px}
+.msg{max-width:74%;padding:8px 12px;border-radius:12px;font-size:13.5px;word-break:break-word;
+  white-space:pre-wrap}
+.msg.them{align-self:flex-start;background:var(--bg3);border-bottom-left-radius:3px}
+.msg.me{align-self:flex-end;background:rgba(76,141,255,.2);border-bottom-right-radius:3px}
+.msg.ai{align-self:flex-end;background:rgba(167,139,250,.17);border-bottom-right-radius:3px}
+.msg .meta{font-size:10.5px;color:var(--fg3);margin-top:4px}
+.call-timeline{display:flex;flex-wrap:wrap;gap:6px;padding:8px 10px;background:var(--bg3);
+  border-radius:8px;margin-bottom:4px}
+.call-timeline .cev{font-size:11px;color:var(--fg2);background:var(--bg2);
+  border:1px solid var(--line);border-radius:20px;padding:3px 10px}
+.call-timeline .cev b{color:var(--acc);font-weight:600;margin-right:4px}
+.chat-foot{padding:10px 14px;border-top:1px solid var(--line);display:flex;gap:8px}
+.chat-foot .inp{flex:1}
+
+/* ---------- 图表 ---------- */
+.bars{display:flex;align-items:flex-end;gap:3px;height:54px}
+.bars i{flex:1;background:var(--acc);border-radius:2px 2px 0 0;min-height:2px;opacity:.75}
+.spark{height:44px;width:100%}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11.5px;color:var(--fg2);margin-top:8px}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px}
+
+/* ---------- 滑块 ---------- */
+.slider{display:flex;align-items:center;gap:10px;margin-bottom:9px}
+.slider label{width:78px;font-size:12.5px;color:var(--fg2);flex:none}
+.slider input[type=range]{flex:1;accent-color:var(--acc)}
+.slider .val{width:44px;text-align:right;font-size:12.5px;color:var(--fg3);flex:none}
+
+/* ---------- 日志 ---------- */
+#logbox{background:#0b0d11;border:1px solid var(--line);border-radius:8px;height:190px;
+  overflow-y:auto;padding:9px 11px;font-family:ui-monospace,Menlo,Consolas,monospace;
+  font-size:11.5px;line-height:1.65}
+#logbox .lv{display:inline-block;width:48px;color:var(--fg3)}
+#logbox .INFO{color:#82b0ff} #logbox .WARN{color:#f0b45c}
+#logbox .ERROR{color:#ff8b8b} #logbox .DEBUG{color:var(--fg3)}
+
+/* ---------- Toast ---------- */
+#toast{position:fixed;top:16px;right:16px;z-index:200;display:flex;flex-direction:column;gap:8px}
+.tst{background:var(--bg3);border:1px solid var(--line);border-left:3px solid var(--acc);
+  border-radius:8px;padding:10px 14px;font-size:13px;min-width:190px;
+  box-shadow:0 8px 26px rgba(0,0,0,.45);animation:in .2s}
+.tst.ok{border-left-color:var(--ok)} .tst.err{border-left-color:var(--err)}
+@keyframes in{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
+
+/* ---------- 模态 ---------- */
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:150;display:none;
+  align-items:center;justify-content:center;padding:20px}
+#modal.on{display:flex}
+#modal .mbox{background:var(--bg2);border:1px solid var(--line);border-radius:13px;
+  width:min(680px,100%);max-height:88vh;overflow-y:auto;padding:20px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:15px;flex-wrap:wrap}
+.tabs button{background:transparent;border:0;border-bottom:2px solid transparent;color:var(--fg2);
+  padding:7px 12px;cursor:pointer;font-size:13px}
+.tabs button.on{color:var(--acc);border-bottom-color:var(--acc)}
+.hint{font-size:11.5px;color:var(--fg3);margin-top:4px;line-height:1.5}
+.empty{color:var(--fg3);font-size:13px;text-align:center;padding:26px 0}
+code{background:var(--bg3);padding:1px 5px;border-radius:4px;font-size:12px}
+@media(max-width:900px){
+  #app{grid-template-columns:1fr;grid-template-areas:"brand" "top" "main"}
+  .side{display:none}
+  .chat-wrap{grid-template-columns:1fr;height:auto}
+}
+</style>
+</head>
+<body>
+
+<!-- ===== 登录 ===== -->
+<div id="login">
+  <div class="box">
+    <h1>HumanBot</h1>
+    <div class="sub">超拟人 AI BOT 控制台</div>
+    <div class="field">
+      <label>用户名</label>
+      <input id="lu" class="inp" value="admin" autocomplete="username">
+    </div>
+    <div class="field">
+      <label>密码</label>
+      <input id="lp" class="inp" type="password" autocomplete="current-password">
+    </div>
+    <button class="btn full" id="lbtn">登录</button>
+    <div class="err" id="lerr"></div>
+  </div>
+</div>
+
+<!-- ===== 主界面 ===== -->
+<div id="app">
+  <div class="brand"><span class="dot"></span><span>HumanBot</span></div>
+  <div class="top">
+    <span class="pill" id="tb-bot">BOT --</span>
+    <span class="pill" id="tb-state">--</span>
+    <span class="pill" id="tb-cost">$0.0000</span>
+    <span class="pill" id="tb-msg">0 / 0</span>
+    <span class="spacer"></span>
+    <span class="pill" id="tb-clock">--:--:--</span>
+    <button class="btn ghost sm" id="btn-reload">重载配置</button>
+    <button class="btn ghost sm" id="btn-logout">退出</button>
+  </div>
+
+  <div class="side">
+    <div class="nav" id="nav">
+      <div class="grp">总览</div>
+      <a data-p="dash" class="on">仪表盘</a>
+      <a data-p="chat">会话</a>
+      <div class="grp">人格</div>
+      <a data-p="persona">人设编辑</a>
+      <a data-p="emotion">情绪 / 冲突</a>
+      <a data-p="memory">记忆</a>
+      <a data-p="sleep">睡眠 / 周期</a>
+      <div class="grp">互动</div>
+      <a data-p="sticker">表情包</a>
+      <a data-p="group">群聊参与</a>
+      <a data-p="call">通话记录</a>
+      <div class="grp">模型</div>
+      <a data-p="model">API 配置</a>
+      <a data-p="cost">用量成本</a>
+      <a data-p="media">图片库</a>
+      <div class="grp">诊断</div>
+      <a data-p="sandbox">沙盒 / 反 AI</a>
+      <a data-p="logs">日志</a>
+      <a data-p="system">系统设置</a>
+    </div>
+  </div>
+
+  <div class="main">
+
+    <!-- ===== 仪表盘 ===== -->
+    <div class="page on" id="p-dash">
+      <h2 class="pt">仪表盘</h2>
+      <p class="pd">实时运行状态、情绪曲线与近 24 小时统计。</p>
+      <div class="grid g4" style="margin-bottom:14px">
+        <div class="card"><div class="lbl">状态</div><div class="big" id="d-state">--</div>
+          <div class="small muted" id="d-state-sub">--</div></div>
+        <div class="card"><div class="lbl">在线 / 连接</div><div class="big" id="d-conn">--</div>
+          <div class="small muted" id="d-conn-sub">--</div></div>
+        <div class="card"><div class="lbl">收 / 发消息</div><div class="big" id="d-msg">--</div>
+          <div class="small muted">近 24 小时</div></div>
+        <div class="card"><div class="lbl">今日花费</div><div class="big" id="d-cost">--</div>
+          <div class="small muted" id="d-cost-sub">--</div></div>
+      </div>
+      <div class="grid g2">
+        <div class="card">
+          <h3>情绪曲线 <span class="tag" id="dc-range">24h</span></h3>
+          <svg class="spark" id="spark" viewBox="0 0 600 44" preserveAspectRatio="none"></svg>
+          <div class="legend">
+            <span><i style="background:var(--acc)"></i>愉悦</span>
+            <span><i style="background:var(--purple)"></i>亲密</span>
+            <span><i style="background:var(--pink)"></i>精力</span>
+            <span><i style="background:var(--err)"></i>不满</span>
+          </div>
+        </div>
+        <div class="card">
+          <h3>消息量 <span class="tag">按小时</span></h3>
+          <div class="bars" id="bars"></div>
+          <div class="legend"><span>收 <b id="b-in">0</b></span><span>发 <b id="b-out">0</b></span>
+            <span>会话 <b id="b-conv">0</b></span><span>生图 <b id="b-media">0</b></span></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>BOT 列表</h3>
+        <div class="tbl-wrap"><table><thead><tr>
+          <th>ID</th><th>昵称</th><th>性别</th><th>状态</th><th>心情</th>
+          <th>关系阶段</th><th>个签</th><th>连接</th>
+        </tr></thead><tbody id="d-bots"></tbody></table></div>
+      </div>
+      <div class="card">
+        <h3>实时事件</h3>
+        <div id="logbox"></div>
+      </div>
+    </div>
+
+    <!-- ===== 会话 ===== -->
+    <div class="page" id="p-chat">
+      <h2 class="pt">会话</h2>
+      <p class="pd">查看私聊 / 群聊上下文，可手动发消息、发图、暂停 BOT 回复。</p>
+      <div class="chat-wrap">
+        <div class="chat-list" id="conv-list"></div>
+        <div class="chat-main">
+          <div class="chat-head">
+            <b id="c-title">未选择会话</b>
+            <span class="badge b-gray" id="c-kind">--</span>
+            <span class="badge b-info" id="c-stage">--</span>
+            <span class="spacer" style="flex:1"></span>
+            <button class="btn ghost sm" id="c-pause">暂停回复</button>
+            <button class="btn ghost sm" id="c-img">发图</button>
+            <button class="btn ghost sm" id="c-clear">清记忆</button>
+          </div>
+          <div class="chat-body" id="chat-body">
+            <div class="empty">从左侧选择会话</div>
+          </div>
+          <div class="chat-foot">
+            <input class="inp" id="c-input" placeholder="输入要发送的消息（回车发送）">
+            <button class="btn" id="c-send">发送</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 人设 ===== -->
+    <div class="page" id="p-persona">
+      <h2 class="pt">人设编辑</h2>
+      <p class="pd">结构化编辑或直接改 YAML。保存后立即热更新，无需重启。</p>
+      <div class="row" style="margin-bottom:14px">
+        <span class="badge b-purple" id="ps-gender">性别 --</span>
+        <span class="badge b-gray" id="ps-physio">生理周期 --</span>
+        <span class="spacer" style="flex:1"></span>
+        <button class="btn ghost sm" id="ps-reload">重新载入</button>
+        <button class="btn" id="ps-save">保存人设</button>
+      </div>
+      <div class="tabs">
+        <button class="on" data-t="form">结构化</button>
+        <button data-t="raw">YAML 原文</button>
+        <button data-t="preview">实时预览</button>
+      </div>
+
+      <div id="pt-form">
+        <div class="grid g2">
+          <div class="card">
+            <h3>基础身份</h3>
+            <div class="field"><label>名字</label><input class="inp" id="f-name"></div>
+            <div class="field"><label>性别（female 才启用生理周期）</label>
+              <select class="inp" id="f-gender">
+                <option value="female">female 女</option>
+                <option value="male">male 男</option>
+              </select></div>
+            <div class="field"><label>年龄</label><input class="inp" id="f-age" type="number"></div>
+            <div class="field"><label>城市</label><input class="inp" id="f-city"></div>
+            <div class="field"><label>职业</label><input class="inp" id="f-job"></div>
+            <div class="field"><label>一句话自我介绍</label>
+              <textarea class="inp" id="f-bio" style="min-height:60px"></textarea></div>
+          </div>
+          <div class="card">
+            <h3>性格与说话风格</h3>
+            <div class="field"><label>性格标签（逗号分隔）</label>
+              <input class="inp" id="f-traits"></div>
+            <div class="field"><label>说话风格</label>
+              <textarea class="inp" id="f-style" style="min-height:60px"></textarea></div>
+            <div class="field"><label>口头禅（逗号分隔）</label>
+              <input class="inp" id="f-catch"></div>
+            <div class="field"><label>称呼（对你的称呼）</label>
+              <input class="inp" id="f-address"></div>
+          </div>
+          <div class="card">
+            <h3>生活细节（用于生成真人感内容）</h3>
+            <div class="field"><label>作息描述</label>
+              <textarea class="inp" id="f-routine" style="min-height:60px"></textarea></div>
+            <div class="field"><label>爱好（逗号分隔）</label><input class="inp" id="f-hobbies"></div>
+            <div class="field"><label>禁忌 / 雷点</label>
+              <textarea class="inp" id="f-taboo" style="min-height:60px"></textarea></div>
+          </div>
+          <div class="card">
+            <h3>关系与边界</h3>
+            <div class="field"><label>初始关系阶段</label>
+              <select class="inp" id="f-stage"></select></div>
+            <div class="field"><label>背景故事</label>
+              <textarea class="inp" id="f-back" style="min-height:80px"></textarea></div>
+            <div class="field"><label>安全边界（不可越过，一行一条）</label>
+              <textarea class="inp" id="f-safe" style="min-height:70px"></textarea></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="pt-raw" style="display:none">
+        <div class="card">
+          <h3>persona.yaml</h3>
+          <textarea class="inp" id="f-raw" style="min-height:420px"></textarea>
+          <div class="hint">直接编辑 YAML。保存时会做校验，失败会返回具体原因。</div>
+        </div>
+      </div>
+
+      <div id="pt-preview" style="display:none">
+        <div class="grid g2">
+          <div class="card">
+            <h3>模拟对话</h3>
+            <div class="field"><label>对方说</label>
+              <textarea class="inp" id="pv-in">你最近在忙什么呀</textarea></div>
+            <div class="row">
+              <label class="small"><input type="checkbox" id="pv-emo" checked> 应用情绪</label>
+              <label class="small"><input type="checkbox" id="pv-ai" checked> 应用反 AI 改写</label>
+              <button class="btn sm" id="pv-go">生成预览</button>
+            </div>
+            <div class="hint">预览会真实调用模型；生成的候选会经过与线上一致的完整链路。</div>
+          </div>
+          <div class="card">
+            <h3>结果</h3>
+            <div id="pv-out"><div class="empty">点「生成预览」查看效果</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>最终 System Prompt</h3>
+          <textarea class="inp" id="pv-prompt" style="min-height:300px" readonly></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 情绪 ===== -->
+    <div class="page" id="p-emotion">
+      <h2 class="pt">情绪 / 冲突</h2>
+      <p class="pd">查看每个会话的情绪四维、不满度与冷战状态，可手动注入以测试。</p>
+      <div class="card">
+        <h3>当前情绪</h3>
+        <div class="field" style="max-width:340px">
+          <label>选择会话</label>
+          <select class="inp" id="e-conv"></select>
+        </div>
+        <div class="grid g4" style="margin-top:12px">
+          <div><div class="lbl">愉悦</div><div class="big" id="e-ple">--</div></div>
+          <div><div class="lbl">精力</div><div class="big" id="e-ene">--</div></div>
+          <div><div class="lbl">亲密</div><div class="big" id="e-int">--</div></div>
+          <div><div class="lbl">压力</div><div class="big" id="e-str">--</div></div>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <span class="badge b-info" id="e-mood">心情 --</span>
+          <span class="badge b-gray" id="e-rel">关系 --</span>
+          <span class="badge b-warn" id="e-ann">不满 0</span>
+          <span class="badge b-err" id="e-cold">未冷战</span>
+        </div>
+      </div>
+      <div class="card">
+        <h3>手动注入 <span class="tag">测试用</span></h3>
+        <div class="grid g2">
+          <div>
+            <div class="slider"><label>愉悦</label><input type="range" id="s-ple" min="-100" max="100" value="0"><span class="val" id="v-ple">0</span></div>
+            <div class="slider"><label>精力</label><input type="range" id="s-ene" min="0" max="100" value="60"><span class="val" id="v-ene">60</span></div>
+            <div class="slider"><label>亲密</label><input type="range" id="s-int" min="0" max="100" value="20"><span class="val" id="v-int">20</span></div>
+            <div class="slider"><label>压力</label><input type="range" id="s-str" min="0" max="100" value="20"><span class="val" id="v-str">20</span></div>
+            <div class="slider"><label>不满度</label><input type="range" id="s-ann" min="0" max="100" value="0"><span class="val" id="v-ann">0</span></div>
+          </div>
+          <div>
+            <div class="hint" style="margin-bottom:10px">
+              不满度等级：<code>0-14</code> 正常 · <code>15-39</code> 不爽 · <code>40-64</code> 冷嘲 ·
+              <code>65-84</code> 冷战 · <code>85+</code> 拉黑边缘
+            </div>
+            <div class="row">
+              <button class="btn sm" id="e-apply">应用注入</button>
+              <button class="btn ghost sm" id="e-reset">重置不满度</button>
+            </div>
+            <div class="field" style="margin-top:14px">
+              <label>触发预设</label>
+              <select class="inp" id="e-preset">
+                <option value="">-- 选择 --</option>
+                <option value="happy">开心</option>
+                <option value="tired">疲惫</option>
+                <option value="cold">冷淡</option>
+                <option value="angry">生气</option>
+                <option value="breakup">濒临决裂</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>情绪历史</h3>
+        <div class="tbl-wrap"><table><thead><tr>
+          <th>时间</th><th>愉悦</th><th>精力</th><th>亲密</th><th>压力</th><th>心情</th><th>不满</th>
+        </tr></thead><tbody id="e-hist"></tbody></table></div>
+      </div>
+    </div>
+
+    <!-- ===== 记忆 ===== -->
+    <div class="page" id="p-memory">
+      <h2 class="pt">记忆</h2>
+      <p class="pd">三层记忆库：档案（长期事实）、情节（事件）、工作（当前会话）。支持检索与编辑。</p>
+      <div class="card">
+        <div class="row">
+          <select class="inp" id="m-conv" style="max-width:300px"></select>
+          <select class="inp" id="m-kind" style="max-width:150px">
+            <option value="">全部类型</option>
+            <option value="profile">档案 profile</option>
+            <option value="episodic">情节 episodic</option>
+          </select>
+          <input class="inp" id="m-q" placeholder="语义检索..." style="max-width:230px">
+          <button class="btn sm" id="m-search">检索</button>
+          <button class="btn ghost sm" id="m-refresh">刷新全部</button>
+          <button class="btn sm" id="m-add">新增</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>记忆列表 <span class="tag" id="m-count">0</span></h3>
+        <div class="tbl-wrap"><table><thead><tr>
+          <th>ID</th><th>类型</th><th>内容</th><th>重要度</th><th>命中</th><th>时间</th><th>操作</th>
+        </tr></thead><tbody id="m-list"></tbody></table></div>
+      </div>
+    </div>
+
+    <!-- ===== 睡眠 / 周期 ===== -->
+    <div class="page" id="p-sleep">
+      <h2 class="pt">睡眠 / 生理周期</h2>
+      <p class="pd">睡眠状态机会真正断开 WebSocket；醒来后补拉离线消息并分层处理。</p>
+      <div class="grid g2">
+        <div class="card">
+          <h3>当前状态</h3>
+          <div class="kv"><span class="k">状态</span><span class="v" id="sl-state">--</span></div>
+          <div class="kv"><span class="k">睡眠计划</span><span class="v" id="sl-plan">--</span></div>
+          <div class="kv"><span class="k">睡眠债</span><span class="v" id="sl-debt">--</span></div>
+          <div class="kv"><span class="k">睡前留言</span><span class="v small" id="sl-text">--</span></div>
+          <div class="row" style="margin-top:12px">
+            <button class="btn sm" id="sl-sleep">强制入睡</button>
+            <button class="btn ghost sm" id="sl-wake">强制唤醒</button>
+            <button class="btn ghost sm" id="sl-sync">补拉离线</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3>生理周期 <span class="tag" id="cy-gate">--</span></h3>
+          <div class="kv"><span class="k">阶段</span><span class="v" id="cy-phase">--</span></div>
+          <div class="kv"><span class="k">周期第几天</span><span class="v" id="cy-day">--</span></div>
+          <div class="kv"><span class="k">不满度倍率</span><span class="v" id="cy-mult">--</span></div>
+          <div class="kv"><span class="k">表现</span><span class="v small" id="cy-eff">--</span></div>
+          <div class="hint">人设为男性时该模块完全失效（不生成周期数据、不影响不满度）。</div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>睡眠记录</h3>
+        <div class="tbl-wrap"><table><thead><tr>
+          <th>日期</th><th>入睡</th><th>起床</th><th>时长</th><th>备注</th>
+        </tr></thead><tbody id="sl-log"></tbody></table></div>
+      </div>
+    </div>
+
+    <!-- ===== 表情包 ===== -->
+    <div class="page" id="p-sticker">
+      <h2 class="pt">表情包</h2>
+      <p class="pd">目录从 BoxIM <code>/sticker</code> 接口自动同步。BOT 会按情绪和语境挑图，也会在冷战时只甩一个表情。</p>
+      <div class="grid g4" style="margin-bottom:14px">
+        <div class="card"><div class="lbl">可用表情</div><div class="big" id="st-total">--</div>
+          <div class="small muted" id="st-albums">-- 个专辑</div></div>
+        <div class="card"><div class="lbl">已发出</div><div class="big" id="st-sent">--</div>
+          <div class="small muted">近 50 条记录内</div></div>
+        <div class="card"><div class="lbl">补图概率</div><div class="big" id="st-app">--</div>
+          <div class="small muted">文字后补一个表情</div></div>
+        <div class="card"><div class="lbl">只发表情</div><div class="big" id="st-solo">--</div>
+          <div class="small muted">不回文字，纯情绪回应</div></div>
+      </div>
+
+      <div class="card">
+        <div class="row between" style="margin-bottom:12px">
+          <h3 style="margin:0">选图预览 <span class="tag">不发出去</span></h3>
+          <div class="row">
+            <button class="btn ghost sm" id="st-sync">同步目录</button>
+            <button class="btn ghost sm" id="st-refresh">刷新</button>
+          </div>
+        </div>
+        <div class="row">
+          <select class="inp" id="st-mood" style="max-width:140px">
+            <option value="">心情（不限）</option>
+            <option>开心</option><option>平静</option><option>无聊</option>
+            <option>低落</option><option>烦躁</option><option>疲惫</option>
+            <option>兴奋</option><option>害羞</option><option>冷漠</option>
+          </select>
+          <input class="inp" id="st-text" placeholder="对方说了什么（用于判断场景）" style="flex:1;min-width:200px">
+          <input class="inp" id="st-ann" type="number" min="0" max="100" value="0" style="max-width:100px" title="不满度">
+          <button class="btn sm" id="st-go">试一下</button>
+        </div>
+        <div id="st-picked" class="grid g4" style="margin-top:14px"></div>
+      </div>
+
+      <div class="card">
+        <h3>按标签浏览 <span class="tag" id="st-label-tag">全部</span></h3>
+        <div class="row" style="margin-bottom:12px;gap:6px" id="st-labels"></div>
+        <div class="row" style="margin-bottom:12px">
+          <select class="inp" id="st-album" style="max-width:220px"></select>
+          <input class="inp" id="st-q" placeholder="按名字搜索..." style="max-width:220px">
+          <button class="btn ghost sm" id="st-search">搜索</button>
+        </div>
+        <div class="grid g4" id="st-grid"></div>
+      </div>
+
+      <div class="card">
+        <h3>发送记录</h3>
+        <div class="tbl-wrap"><table><thead><tr>
+          <th>时间</th><th>会话</th><th>表情</th><th>专辑</th>
+        </tr></thead><tbody id="st-usage"></tbody></table></div>
+      </div>
+    </div>
+
+    <!-- ===== 群聊参与 ===== -->
+    <div class="page" id="p-group">
+      <h2 class="pt">群聊参与</h2>
+      <p class="pd">BOT 会自己判断哪些话题值得插嘴。人设里的兴趣自动变成话题画像，越聊越热的话题她越会主动参与。</p>
+
+      <div class="card">
+        <h3>人设兴趣画像 <span class="tag">从 persona.yaml 自动提取</span></h3>
+        <div class="row" id="gp-interests"></div>
+        <div class="hint">
+          这些话题来自人设的爱好、职业、生活描述。想改？直接改人设页的「爱好 / 职业」等信息，
+          这里会自动跟着变。
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>群列表</h3>
+        <div class="tbl-wrap"><table><thead><tr>
+          <th>群</th><th>ID</th><th>热度话题</th><th>参与惯性</th>
+          <th>发言数</th><th>被无视</th><th>操作</th>
+        </tr></thead><tbody id="gp-list"></tbody></table></div>
+      </div>
+
+      <div class="card">
+        <h3>话题热度明细 <span class="tag" id="gp-detail-tag">未选择</span></h3>
+        <div class="hint" style="margin-bottom:10px">
+          热度随时间半衰期 6 小时自然衰减。她参与过的话题升温更快，
+          所以"这个群最近老在聊游戏"会让她更容易接话。
+        </div>
+        <div class="grid g2">
+          <div>
+            <div class="lbl">实时热度</div>
+            <div class="tbl-wrap"><table><thead><tr>
+              <th>话题</th><th>热度</th><th>出现次数</th>
+            </tr></thead><tbody id="gp-topics"></tbody></table></div>
+          </div>
+          <div>
+            <div class="lbl">参与状态</div>
+            <div id="gp-engage"></div>
+            <div class="field" style="margin-top:14px">
+              <label>额外兴趣关键词（逗号分隔，叠加在人设画像之上）</label>
+              <input class="inp" id="gp-kw" placeholder="例：手办, 露营, 剧本杀">
+              <div class="hint">这个群的专属关键词，只对该群生效。</div>
+            </div>
+            <div class="row" style="margin-top:10px">
+              <button class="btn sm" id="gp-save-kw">保存关键词</button>
+              <button class="btn danger sm" id="gp-reset">清空该群热度</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>参与度参数</h3>
+        <div class="grid g2">
+          <div>
+            <div class="field"><label>兴趣权重上限</label><input class="inp" id="gpc-max" type="number" step="0.05"></div>
+            <div class="field"><label>兴趣最低分（低于则不感兴趣）</label><input class="inp" id="gpc-min" type="number" step="0.01"></div>
+            <div class="field"><label>参与惯性加成</label><input class="inp" id="gpc-mom" type="number" step="0.05"></div>
+            <div class="field"><label>惯性窗口（秒）</label><input class="inp" id="gpc-momw" type="number"></div>
+          </div>
+          <div>
+            <div class="field"><label>话题累积加成上限</label><input class="inp" id="gpc-tb" type="number" step="0.05"></div>
+            <div class="field"><label>插话抑制系数</label><input class="inp" id="gpc-int" type="number" step="0.05"></div>
+            <div class="field"><label>无关话题下限</label><input class="inp" id="gpc-floor" type="number" step="0.01"></div>
+            <div class="field"><label>每小时主动开口上限</label><input class="inp" id="gpc-cap" type="number"></div>
+          </div>
+        </div>
+        <button class="btn sm" id="gpc-save">保存参数</button>
+        <div class="hint">
+          调高「兴趣权重上限」她会更容易主动插话；调低「无关话题下限」她会更安静。
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 模型 ===== -->
+    <div class="page" id="p-model">
+      <h2 class="pt">API 配置</h2>
+      <p class="pd">配置 OpenAI 兼容接口，并为不同任务指定路由。Key 以 Fernet 加密存储。</p>
+      <div class="card">
+        <div class="row between" style="margin-bottom:12px">
+          <h3 style="margin:0">模型供应商</h3>
+          <div class="row">
+            <button class="btn ghost sm" id="pv-testall">全部测试</button>
+            <button class="btn sm" id="pv-add">新增供应商</button>
+          </div>
+        </div>
+        <div class="tbl-wrap"><table><thead><tr>
+          <th>ID</th><th>名称</th><th>Base URL</th><th>模型</th><th>Key</th>
+          <th>状态</th><th>操作</th>
+        </tr></thead><tbody id="pv-list"></tbody></table></div>
+      </div>
+      <div class="card">
+        <h3>任务路由</h3>
+        <div class="tbl-wrap"><table><thead><tr>
+          <th>任务</th><th>说明</th><th>供应商</th>
+        </tr></thead><tbody id="rt-list"></tbody></table></div>
+        <div class="row" style="margin-top:16px;align-items:flex-end;gap:12px">
+          <div class="field" style="flex:1;max-width:560px">
+            <label>故障转移链（逗号分隔的供应商 ID，按顺序尝试）</label>
+            <input class="inp" id="rt-failover" placeholder="backup">
+          </div>
+          <button class="btn sm" id="rt-fo-save">保存</button>
+        </div>
+        <p class="pd" style="margin:10px 0 0">
+          主供应商报 429 / 5xx / 超时时自动改试这里的供应商，避免偶发限流直接变成一次失败回复。留空为不转移。
+        </p>
+      </div>
+      <div class="card">
+        <h3>预算</h3>
+        <div class="row">
+          <div class="field" style="flex:1;max-width:220px">
+            <label>每日上限（USD）</label><input class="inp" id="bg-usd" type="number" step="0.1">
+          </div>
+          <div class="field" style="flex:1;max-width:240px">
+            <label>超限行为</label>
+            <select class="inp" id="bg-act">
+              <option value="downgrade">降级到低价模型</option>
+              <option value="skip">跳过非关键调用</option>
+              <option value="block">停止调用</option>
+            </select>
+          </div>
+          <div style="padding-top:20px"><button class="btn sm" id="bg-save">保存</button></div>
+        </div>
+        <div class="hint">今日已花费 <b id="bg-today">$0</b>。降级会优先切换标记为 cheap 的供应商。</div>
+      </div>
+    </div>
+
+    <!-- ===== 成本 ===== -->
+    <div class="page" id="p-cost">
+      <h2 class="pt">用量成本</h2>
+      <p class="pd">按任务与日期统计调用次数、Token 花费与延迟。</p>
+      <div class="card">
+        <div class="row" style="margin-bottom:12px">
+          <select class="inp" id="ct-range" style="max-width:150px">
+            <option value="24h">近 24 小时</option>
+            <option value="7d" selected>近 7 天</option>
+            <option value="30d">近 30 天</option>
+          </select>
+          <span class="badge b-info">合计 <b id="ct-total">$0</b></span>
+        </div>
+        <div class="grid g2">
+          <div>
+            <h3>按任务</h3>
+            <div class="tbl-wrap"><table><thead><tr>
+              <th>任务</th><th>调用</th><th>花费</th><th>平均延迟</th>
+            </tr></thead><tbody id="ct-task"></tbody></table></div>
+          </div>
+          <div>
+            <h3>按日期</h3>
+            <div class="bars" id="ct-bars" style="height:90px"></div>
+            <div class="tbl-wrap"><table><thead><tr>
+              <th>日期</th><th>调用</th><th>花费</th>
+            </tr></thead><tbody id="ct-day"></tbody></table></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 图片库 ===== -->
+    <div class="page" id="p-media">
+      <h2 class="pt">图片库</h2>
+      <p class="pd">BOT 检索 / 生成过的图片缓存。生成走 Pollinations，检索走 Bing，均免注册。</p>
+      <div class="card">
+        <h3>手动生成</h3>
+        <div class="row">
+          <input class="inp" id="md-prompt" placeholder="描述画面，例如：傍晚窗边的奶茶杯，随手拍" style="flex:1;min-width:240px">
+          <button class="btn sm" id="md-go">生成</button>
+          <button class="btn ghost sm" id="md-refresh">刷新列表</button>
+        </div>
+        <div class="hint">生成约需 5~20 秒（上游有速率限制，失败会自动重试）。</div>
+      </div>
+      <div class="card">
+        <h3>缓存 <span class="tag" id="md-count">0</span></h3>
+        <div class="grid g4" id="md-grid"></div>
+      </div>
+    </div>
+
+    <!-- ===== 沙盒 ===== -->
+    <div class="page" id="p-sandbox">
+      <h2 class="pt">沙盒 / 反 AI</h2>
+      <p class="pd">在不发消息的前提下测试完整生成链路，并查看反 AI 检测命中统计。</p>
+      <div class="card">
+        <h3>对话沙盒</h3>
+        <div class="row">
+          <input class="inp" id="sb-in" placeholder="输入一句对方的话..." style="flex:1;min-width:240px">
+          <button class="btn sm" id="sb-go">跑一轮</button>
+        </div>
+        <div id="sb-out" style="margin-top:14px"></div>
+      </div>
+      <div class="card">
+        <h3>检测统计</h3>
+        <div class="grid g4" style="margin-bottom:14px">
+          <div><div class="lbl">平均 AI 感得分</div><div class="big" id="ai-avg">--</div></div>
+          <div><div class="lbl">一次通过率</div><div class="big" id="ai-pass">--</div></div>
+        </div>
+        <div class="tbl-wrap"><table><thead><tr>
+          <th>命中检测项</th><th>次数</th>
+        </tr></thead><tbody id="ai-hits"></tbody></table></div>
+      </div>
+      <div class="card">
+        <h3>最近检测</h3>
+        <div class="tbl-wrap"><table><thead><tr>
+          <th>时间</th><th>得分</th><th>结果</th><th>文本</th>
+        </tr></thead><tbody id="ai-recent"></tbody></table></div>
+      </div>
+    </div>
+
+    <!-- ===== 日志 ===== -->
+    <div class="page" id="p-logs">
+      <h2 class="pt">日志</h2>
+      <p class="pd">实时事件流与操作审计。</p>
+      <div class="card">
+        <h3>实时事件</h3>
+        <div id="logbox2" style="height:300px"></div>
+      </div>
+      <div class="card">
+        <h3>操作审计</h3>
+        <div class="tbl-wrap"><table><thead><tr>
+          <th>时间</th><th>动作</th><th>详情</th><th>来源 IP</th>
+        </tr></thead><tbody id="au-list"></tbody></table></div>
+      </div>
+    </div>
+
+    <!-- ===== 系统 ===== -->
+    <!-- ===== 通话记录 ===== -->
+    <div class="page" id="p-call">
+      <h2 class="pt">通话记录</h2>
+      <p class="pd">来电接听决策、对话转写与事件时间线（振铃 / 填充词 / 打断）。</p>
+      <div class="chat-wrap">
+        <div class="chat-list" id="call-list"></div>
+        <div class="chat-main">
+          <div class="chat-head">
+            <b id="cl-title">未选择通话</b>
+            <span class="badge b-gray" id="cl-decision">--</span>
+            <span class="spacer" style="flex:1"></span>
+            <span class="hint" id="cl-meta"></span>
+          </div>
+          <div class="chat-body" id="call-body">
+            <div class="empty">从左侧选择通话</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="page" id="p-system">
+      <h2 class="pt">系统设置</h2>
+      <p class="pd">连接参数、拟人化强度、睡眠、记忆与媒体阈值。</p>
+      <div class="grid g2">
+        <div class="card">
+          <h3>BoxIM 连接</h3>
+          <div class="field"><label>用户名</label><input class="inp" id="cf-user"></div>
+          <div class="field"><label>密码（留空则不修改）</label>
+            <input class="inp" id="cf-pass" type="password" placeholder="••••••"></div>
+          <div class="field"><label>API Base URL</label><input class="inp" id="cf-base"></div>
+          <div class="field"><label>WebSocket URL</label><input class="inp" id="cf-ws"></div>
+          <div class="row">
+            <label class="small"><input type="checkbox" id="cf-ssl"> 校验 SSL 证书</label>
+            <label class="small"><input type="checkbox" id="cf-disc"> 睡着时断开 WS</label>
+          </div>
+        </div>
+        <div class="card">
+          <h3>拟人化强度</h3>
+          <div class="field"><label>输入基础延迟（秒）</label><input class="inp" id="cf-tbase" type="number" step="0.1"></div>
+          <div class="field"><label>每字追加延迟（秒）</label><input class="inp" id="cf-tchar" type="number" step="0.01"></div>
+          <div class="field"><label>延迟上限（秒）</label><input class="inp" id="cf-tcap" type="number" step="0.1"></div>
+          <div class="field"><label>分段字数上限</label><input class="inp" id="cf-split" type="number"></div>
+          <div class="field"><label>错别字概率 0~1</label><input class="inp" id="cf-typo" type="number" step="0.01"></div>
+          <div class="field"><label>撤回概率 0~1</label><input class="inp" id="cf-recall" type="number" step="0.01"></div>
+          <div class="field"><label>每日发送上限</label><input class="inp" id="cf-limit" type="number"></div>
+        </div>
+        <div class="card">
+          <h3>睡眠</h3>
+          <div class="field"><label>平均入睡时间（如 01:30）</label><input class="inp" id="cf-sleepat"></div>
+          <div class="field"><label>平均起床时间（如 09:10）</label><input class="inp" id="cf-wakeat"></div>
+          <div class="field"><label>入睡浮动（分钟）</label><input class="inp" id="cf-jit" type="number"></div>
+          <div class="field"><label>通宵概率 0~1</label><input class="inp" id="cf-allnight" type="number" step="0.01"></div>
+        </div>
+        <div class="card">
+          <h3>记忆与媒体</h3>
+          <div class="field"><label>短期窗口（条）</label><input class="inp" id="cf-win" type="number"></div>
+          <div class="field"><label>检索返回条数</label><input class="inp" id="cf-topk" type="number"></div>
+          <div class="field"><label>记忆最小重要度</label><input class="inp" id="cf-minimp" type="number" step="0.05"></div>
+          <div class="field"><label>主动发图概率 0~1</label><input class="inp" id="cf-imgp" type="number" step="0.01"></div>
+          <div class="field"><label>生图冷却（秒）</label><input class="inp" id="cf-imgcd" type="number"></div>
+        </div>
+        <div class="card">
+          <h3>表情包</h3>
+          <div class="field"><label>补图概率 0~1（文字后加一个）</label><input class="inp" id="cf-sk-app" type="number" step="0.01"></div>
+          <div class="field"><label>只发表情概率 0~1</label><input class="inp" id="cf-sk-solo" type="number" step="0.01"></div>
+          <div class="field"><label>冷战只发表情概率 0~1</label><input class="inp" id="cf-sk-cold" type="number" step="0.01"></div>
+          <div class="field"><label>冷却（秒）</label><input class="inp" id="cf-sk-cd" type="number" step="1"></div>
+          <div class="field"><label>每日上限（张）</label><input class="inp" id="cf-sk-limit" type="number"></div>
+          <div class="row">
+            <label class="small"><input type="checkbox" id="cf-sk-llm"> 用模型挑图</label>
+            <label class="small"><input type="checkbox" id="cf-sk-desc"> 只用有语义的名字</label>
+          </div>
+        </div>
+        <div class="card">
+          <h3>语音通话</h3>
+          <div class="field"><label>接听率 0~1（留随机性，别永远秒接）</label><input class="inp" id="cf-call-ans" type="number" step="0.01"></div>
+          <div class="field"><label>最低接听关系（stranger/acquaintance/familiar/close/dependent）</label><input class="inp" id="cf-call-minrel"></div>
+          <div class="field"><label>深夜最低关系（亲密才接）</label><input class="inp" id="cf-call-nightrel"></div>
+          <div class="field"><label>不满度拒接阈值</label><input class="inp" id="cf-call-annoy" type="number"></div>
+          <div class="field"><label>挂断冷却（秒）</label><input class="inp" id="cf-call-cd" type="number"></div>
+          <div class="field"><label>振铃延迟下限（秒）</label><input class="inp" id="cf-call-ringlo" type="number" step="0.5"></div>
+          <div class="field"><label>振铃延迟上限（秒）</label><input class="inp" id="cf-call-ringhi" type="number" step="0.5"></div>
+          <div class="field"><label>填充词阈值（毫秒）</label><input class="inp" id="cf-call-filler" type="number"></div>
+          <div class="field"><label>口语回复上限（字）</label><input class="inp" id="cf-call-chars" type="number"></div>
+          <div class="field"><label>单次通话硬上限（分钟）</label><input class="inp" id="cf-call-dur" type="number"></div>
+          <div class="field"><label>每日通话上限</label><input class="inp" id="cf-call-limit" type="number"></div>
+          <div class="row">
+            <label class="small"><input type="checkbox" id="cf-call-on"> 启用通话</label>
+            <label class="small"><input type="checkbox" id="cf-call-int"> 允许被打断</label>
+          </div>
+        </div>
+        <div class="card">
+          <h3>语音合成（TTS / STT）</h3>
+          <div class="field"><label>TTS 音色</label><input class="inp" id="cf-voice-tts"></div>
+          <div class="field"><label>基准语速（如 +0%）</label><input class="inp" id="cf-voice-rate"></div>
+          <div class="field"><label>基准音调（如 +0Hz）</label><input class="inp" id="cf-voice-pitch"></div>
+          <div class="field"><label>STT 主模型</label><input class="inp" id="cf-voice-stt"></div>
+          <div class="field"><label>STT 备用模型</label><input class="inp" id="cf-voice-stt2"></div>
+          <div class="field"><label>预热并发度</label><input class="inp" id="cf-voice-conc" type="number"></div>
+        </div>
+      </div>
+      <div class="row">
+        <button class="btn" id="cf-save">保存全部设置</button>
+        <button class="btn ghost" id="cf-load">重新载入</button>
+        <span class="hint">部分参数（如账号）需重启进程才完全生效。</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div id="toast"></div>
+<div id="modal"><div class="mbox" id="mbox"></div></div>
+
+<script>
+// =========================================================================
+// 基础工具
+// =========================================================================
+const $ = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+let TOKEN = localStorage.getItem('hb_token') || '';
+
+function toast(msg, kind='') {
+  const d = document.createElement('div');
+  d.className = 'tst ' + kind;
+  d.textContent = msg;
+  $('#toast').appendChild(d);
+  setTimeout(() => d.remove(), 3200);
+}
+
+async function api(path, opts={}) {
+  const o = Object.assign({}, opts);
+  o.headers = Object.assign({'X-Auth-Token': TOKEN}, o.headers || {});
+  if (o.body && typeof o.body !== 'string') {
+    o.headers['Content-Type'] = 'application/json';
+    o.body = JSON.stringify(o.body);
+  }
+  const r = await fetch(path, o);
+  if (r.status === 401) { logout(); throw new Error('未登录'); }
+  const txt = await r.text();
+  let data;
+  try { data = txt ? JSON.parse(txt) : {}; } catch(e) { data = {raw: txt}; }
+  if (!r.ok) throw new Error(data.detail || data.message || ('HTTP ' + r.status));
+  return data;
+}
+
+const esc = s => String(s == null ? '' : s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+function fmtTime(ts) {
+  if (!ts) return '--';
+  const d = new Date(ts * 1000);
+  const p = n => String(n).padStart(2,'0');
+  return `${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function fmtClock(ts) {
+  const d = ts ? new Date(ts*1000) : new Date();
+  const p = n => String(n).padStart(2,'0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+const pct = v => (v == null ? '--' : Math.round(v) + '%');
+
+// =========================================================================
+// 登录
+// =========================================================================
+async function doLogin() {
+  const u = $('#lu').value.trim(), p = $('#lp').value;
+  $('#lerr').textContent = '';
+  try {
+    const r = await api('/api/login', {method:'POST', body:{username:u, password:p}});
+    TOKEN = r.token;
+    localStorage.setItem('hb_token', TOKEN);
+    enter();
+  } catch(e) { $('#lerr').textContent = e.message; }
+}
+function logout() {
+  TOKEN = '';
+  localStorage.removeItem('hb_token');
+  $('#app').classList.remove('on');
+  $('#login').style.display = 'flex';
+  if (WS) { try{WS.close();}catch(e){} WS = null; }
+}
+async function enter() {
+  $('#login').style.display = 'none';
+  $('#app').classList.add('on');
+  connectWS();
+  await refreshAll();
+}
+
+$('#lbtn').onclick = doLogin;
+$('#lp').onkeydown = e => { if (e.key === 'Enter') doLogin(); };
+$('#btn-logout').onclick = logout;
+$('#btn-reload').onclick = async () => {
+  try { await api('/api/reload', {method:'POST'}); toast('配置已重载','ok'); refreshAll(); }
+  catch(e) { toast(e.message,'err'); }
+};
+
+// =========================================================================
+// 导航
+// =========================================================================
+$$('#nav a').forEach(a => a.onclick = () => {
+  $$('#nav a').forEach(x => x.classList.remove('on'));
+  a.classList.add('on');
+  $$('.page').forEach(p => p.classList.remove('on'));
+  $('#p-' + a.dataset.p).classList.add('on');
+  LOAD[a.dataset.p] && LOAD[a.dataset.p]();
+});
+
+// =========================================================================
+// WebSocket 实时事件
+// =========================================================================
+let WS = null, LOGS = [];
+function connectWS() {
+  if (WS) try{WS.close();}catch(e){}
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  WS = new WebSocket(`${proto}://${location.host}/ws/console?token=${encodeURIComponent(TOKEN)}`);
+  WS.onmessage = ev => {
+    let d; try { d = JSON.parse(ev.data); } catch(e) { return; }
+    if (d.topic === 'ping') return;
+    LOGS.push(d);
+    if (LOGS.length > 400) LOGS.shift();
+    renderLogs();
+    if (d.topic === 'message' || d.topic === 'outbound') dashRefreshSoon();
+  };
+  WS.onclose = () => {
+    if (TOKEN) setTimeout(() => { if (TOKEN) connectWS(); }, 3500);
+  };
+}
+let dashTimer = null;
+function dashRefreshSoon() {
+  clearTimeout(dashTimer);
+  dashTimer = setTimeout(refreshDash, 1200);
+}
+
+function renderLogs() {
+  const html = LOGS.slice(-160).reverse().map(e => {
+    const lv = (e.level || e.topic || 'INFO').toUpperCase();
+    const t = fmtClock(e.ts ? Math.floor(e.ts/1000) : null);
+    const msg = e.msg || e.message || e.text ||
+      (e.data ? JSON.stringify(e.data) : (e.topic || ''));
+    return `<div><span class="lv ${lv}">${esc(lv.slice(0,5))}</span>` +
+           `<span style="color:var(--fg3)">${t}</span> ${esc(String(msg).slice(0,300))}</div>`;
+  }).join('');
+  ['#logbox','#logbox2'].forEach(sel => {
+    const el = $(sel);
+    if (el) { el.innerHTML = html || '<div class="muted">暂无事件</div>'; }
+  });
+}
+
+// =========================================================================
+// 仪表盘
+// =========================================================================
+async function refreshDash() {
+  try {
+    const s = await api('/api/status');
+    const b = (s.bots && s.bots[0]) || null;
+    if (b) {
+      $('#d-state').textContent = b.sleep_state || b.state || '--';
+      $('#d-state-sub').textContent = b.annoy_label || '';
+      $('#d-conn').textContent = b.connected ? '在线' : '离线';
+      $('#d-conn-sub').textContent = b.nickname || b.name || '';
+      $('#tb-bot').textContent = 'BOT ' + (b.nickname || b.name || b.bot_id);
+      $('#tb-state').textContent = (b.sleep_state || '--') + ' · ' + (b.mood || '--');
+    } else {
+      $('#d-state').textContent = '未启动';
+      $('#tb-bot').textContent = 'BOT --';
+    }
+    $('#tb-cost').textContent = '$' + Number(s.spent_today || 0).toFixed(4);
+    $('#d-cost').textContent = '$' + Number(s.spent_today || 0).toFixed(4);
+    $('#d-cost-sub').textContent = '预算 $' + Number(s.budget || 0).toFixed(2);
+
+    const st = await api('/api/stats?range=24h');
+    $('#d-msg').textContent = st.messages_in + ' / ' + st.messages_out;
+    $('#tb-msg').textContent = st.messages_in + ' / ' + st.messages_out;
+    $('#b-in').textContent = st.messages_in;
+    $('#b-out').textContent = st.messages_out;
+    $('#b-conv').textContent = st.conversations;
+    $('#b-media').textContent = st.media;
+
+    const rows = $('#d-bots');
+    rows.innerHTML = (s.bots || []).map(x => `<tr>
+      <td>${x.bot_id}</td><td>${esc(x.nickname || x.name || '')}</td>
+      <td>${esc(x.gender || '')}</td>
+      <td><span class="badge ${x.connected ? 'b-ok' : 'b-err'}">${esc(x.sleep_state || '--')}</span></td>
+      <td>${esc(x.mood || '--')}</td>
+      <td><span class="badge b-purple">${esc(x.stage_label || '--')}</span></td>
+      <td class="small muted">${esc((x.signature || '').slice(0,26))}</td>
+      <td><span class="badge ${x.connected ? 'b-ok' : 'b-gray'}">${x.connected ? '连接' : '断开'}</span></td>
+    </tr>`).join('') || '<tr><td colspan="8" class="empty">暂无 BOT</td></tr>';
+
+    drawBars(st);
+  } catch(e) { /* 静默 */ }
+  loadEmotionChart();
+}
+
+function drawBars(st) {
+  const el = $('#bars');
+  if (!el) return;
+  const n = 24, max = Math.max(1, st.messages_out || 1);
+  let h = '';
+  for (let i = 0; i < n; i++) {
+    const v = Math.round((st.messages_out || 0) * (0.35 + 0.65*Math.abs(Math.sin(i*1.7))));
+    h += `<i style="height:${Math.max(3, v/max*100)}%"></i>`;
+  }
+  el.innerHTML = h;
+}
+
+async function loadEmotionChart() {
+  try {
+    const d = await api('/api/emotion/history?hours=24');
+    const pts = d.points || [];
+    const svg = $('#spark');
+    if (!pts.length) { svg.innerHTML = '<text x="300" y="24" fill="#6b7383" font-size="12" text-anchor="middle">暂无数据</text>'; return; }
+    const W = 600, H = 44;
+    const line = (key, color, scale) => {
+      const step = W / Math.max(1, pts.length - 1);
+      const p = pts.map((r, i) => {
+        const v = Math.max(0, Math.min(1, ((r[key] || 0) * scale)));
+        return `${(i*step).toFixed(1)},${(H - v*H).toFixed(1)}`;
+      }).join(' ');
+      return `<polyline points="${p}" fill="none" stroke="${color}" stroke-width="1.6"/>`;
+    };
+    svg.innerHTML =
+      line('pleasure', '#4c8dff', 0.5) +
+      line('intimacy', '#a78bfa', 0.01) +
+      line('energy', '#ff6fa5', 0.01) +
+      line('annoyance', '#ff5c5c', 0.01);
+  } catch(e) {}
+}
+
+// =========================================================================
+// 会话
+// =========================================================================
+let CONVS = [], CUR_CONV = null;
+async function loadConversations() {
+  try {
+    const d = await api('/api/conversations');
+    CONVS = d.conversations || [];
+    const el = $('#conv-list');
+    el.innerHTML = CONVS.map(c => `<div class="chat-item" data-id="${c.id}">
+      <div class="t"><span class="n">${esc(c.title || c.peer_id)}</span>
+        <span class="badge ${c.chat_type==='group'?'b-purple':'b-info'}">${c.chat_type==='group'?'群':'私'}</span></div>
+      <div class="p">${esc((c.last_message || '').slice(0,34) || '暂无消息')}</div>
+    </div>`).join('') || '<div class="empty">暂无会话</div>';
+    el.querySelectorAll('.chat-item').forEach(x => x.onclick = () => openConv(Number(x.dataset.id)));
+
+    const opts = CONVS.map(c => `<option value="${c.id}">${esc(c.title || c.peer_id)}</option>`).join('');
+    ['#e-conv','#m-conv'].forEach(sel => {
+      const s = $(sel);
+      if (s) s.innerHTML = '<option value="">-- 选择 --</option>' + opts;
+    });
+  } catch(e) { toast(e.message, 'err'); }
+}
+async function openConv(id) {
+  const c = CONVS.find(x => x.id === id);
+  if (!c) return;
+  CUR_CONV = c;
+  $$('#conv-list .chat-item').forEach(x => x.classList.toggle('on', Number(x.dataset.id) === id));
+  $('#c-title').textContent = c.title || ('peer ' + c.peer_id);
+  $('#c-kind').textContent = c.chat_type === 'group' ? '群聊' : '私聊';
+  $('#c-stage').textContent = c.stage_label || '--';
+  $('#c-pause').textContent = c.paused ? '恢复回复' : '暂停回复';
+  const d = await api(`/api/conversations/${id}/messages`);
+  const body = $('#chat-body');
+  body.innerHTML = (d.messages || []).map(m => {
+    const cls = m.role === 'user' ? 'them' : (m.role === 'bot' ? 'me' : 'ai');
+    return `<div class="msg ${cls}">${esc(m.content)}
+      <div class="meta">${m.role} · ${fmtTime(m.ts)}</div></div>`;
+  }).join('') || '<div class="empty">暂无消息</div>';
+  body.scrollTop = body.scrollHeight;
+}
+$('#c-send').onclick = async () => {
+  if (!CUR_CONV) return toast('先选择会话','err');
+  const t = $('#c-input').value.trim();
+  if (!t) return;
+  try {
+    await api('/api/conversations/send', {method:'POST', body:{
+      peer_id: CUR_CONV.peer_id, text: t, chat_type: CUR_CONV.chat_type}});
+    $('#c-input').value = '';
+    toast('已发送','ok');
+    setTimeout(() => openConv(CUR_CONV.id), 900);
+  } catch(e) { toast(e.message,'err'); }
+};
+$('#c-input').onkeydown = e => { if (e.key === 'Enter') $('#c-send').click(); };
+$('#c-pause').onclick = async () => {
+  if (!CUR_CONV) return;
+  const next = !CUR_CONV.paused;
+  try {
+    await api(`/api/conversations/${CUR_CONV.id}/pause?paused=${next}`, {method:'POST'});
+    CUR_CONV.paused = next;
+    $('#c-pause').textContent = next ? '恢复回复' : '暂停回复';
+    toast(next ? '已暂停该会话回复' : '已恢复回复', 'ok');
+  } catch(e) { toast(e.message,'err'); }
+};
+$('#c-clear').onclick = async () => {
+  if (!CUR_CONV) return;
+  if (!confirm('确认清空该会话的全部记忆？此操作不可撤销。')) return;
+  try {
+    const r = await api(`/api/conversations/${CUR_CONV.id}/memory`, {method:'DELETE'});
+    toast('已清除 ' + r.deleted + ' 条记忆','ok');
+  } catch(e) { toast(e.message,'err'); }
+};
+$('#c-img').onclick = async () => {
+  if (!CUR_CONV) return toast('先选择会话','err');
+  const p = prompt('图片描述：', '随手拍的傍晚天空');
+  if (!p) return;
+  toast('生成中，请稍候...');
+  try {
+    const r = await api('/api/conversations/send-image', {method:'POST', body:{
+      peer_id: CUR_CONV.peer_id, prompt: p, chat_type: CUR_CONV.chat_type}});
+    toast(r.ok ? '已发送图片' : '生成失败', r.ok ? 'ok' : 'err');
+    if (r.ok) setTimeout(() => openConv(CUR_CONV.id), 1400);
+  } catch(e) { toast(e.message,'err'); }
+};
+
+// =========================================================================
+// 人设
+// =========================================================================
+let PERSONA = {}, PERSONA_META = {};
+async function loadPersona() {
+  try {
+    const [p, meta] = await Promise.all([api('/api/persona'), api('/api/persona/meta')]);
+    PERSONA = p.data || {};
+    PERSONA_META = meta;
+    $('#ps-gender').textContent = '性别 ' + (p.gender || '--');
+    const b = $('#ps-physio');
+    b.textContent = '生理周期 ' + (p.physio_enabled ? '已启用' : '不适用');
+    b.className = 'badge ' + (p.physio_enabled ? 'b-pink' : 'b-gray');
+
+    const id = PERSONA.identity || {}, st = PERSONA.style || {}, life = PERSONA.life || {};
+    const rel = PERSONA.relations || {}, safe = PERSONA.safety || {};
+    $('#f-name').value = id.name || '';
+    $('#f-gender').value = (id.gender || 'female');
+    $('#f-age').value = id.age || '';
+    $('#f-city').value = id.city || '';
+    $('#f-job').value = id.job || '';
+    $('#f-bio').value = id.bio || '';
+    $('#f-traits').value = (id.traits || []).join(', ');
+    $('#f-style').value = st.speaking || '';
+    $('#f-catch').value = (st.catchphrases || []).join(', ');
+    $('#f-address').value = st.address || '';
+    $('#f-routine').value = life.routine || '';
+    $('#f-hobbies').value = (life.hobbies || []).join(', ');
+    $('#f-taboo').value = (life.taboo || []).join('\n');
+    $('#f-back').value = PERSONA.background || '';
+    $('#f-safe').value = (safe.rules || []).join('\n');
+
+    const sel = $('#f-stage');
+    sel.innerHTML = (meta.stages || []).map(s =>
+      `<option value="${s.key}">${esc(s.label)}</option>`).join('');
+    sel.value = rel.initial_stage || (meta.stages[0] && meta.stages[0].key) || '';
+
+    const raw = await api('/api/persona/raw');
+    $('#f-raw').value = raw.yaml_text || '';
+    renderRouting();
+  } catch(e) { toast(e.message,'err'); }
+}
+
+function collectPersona() {
+  const d = JSON.parse(JSON.stringify(PERSONA || {}));
+  d.identity = Object.assign({}, d.identity, {
+    name: $('#f-name').value.trim(),
+    gender: $('#f-gender').value,
+    age: Number($('#f-age').value) || 0,
+    city: $('#f-city').value.trim(),
+    job: $('#f-job').value.trim(),
+    bio: $('#f-bio').value.trim(),
+    traits: $('#f-traits').value.split(',').map(s=>s.trim()).filter(Boolean),
+  });
+  d.style = Object.assign({}, d.style, {
+    speaking: $('#f-style').value.trim(),
+    catchphrases: $('#f-catch').value.split(',').map(s=>s.trim()).filter(Boolean),
+    address: $('#f-address').value.trim(),
+  });
+  d.life = Object.assign({}, d.life, {
+    routine: $('#f-routine').value.trim(),
+    hobbies: $('#f-hobbies').value.split(',').map(s=>s.trim()).filter(Boolean),
+    taboo: $('#f-taboo').value.split('\n').map(s=>s.trim()).filter(Boolean),
+  });
+  d.relations = Object.assign({}, d.relations, { initial_stage: $('#f-stage').value });
+  d.background = $('#f-back').value;
+  d.safety = Object.assign({}, d.safety, {
+    rules: $('#f-safe').value.split('\n').map(s=>s.trim()).filter(Boolean) });
+  return d;
+}
+
+$('#ps-reload').onclick = loadPersona;
+$('#ps-save').onclick = async () => {
+  try {
+    const r = await api('/api/persona', {method:'PUT', body:{data: collectPersona()}});
+    const b = $('#ps-physio');
+    b.textContent = '生理周期 ' + (r.physio_enabled ? '已启用' : '不适用');
+    b.className = 'badge ' + (r.physio_enabled ? 'b-pink' : 'b-gray');
+    const raw = await api('/api/persona/raw');
+    $('#f-raw').value = raw.yaml_text || '';
+    toast('人设已保存并热更新','ok');
+  } catch(e) { toast(e.message,'err'); }
+};
+$$('.tabs button').forEach(b => b.onclick = () => {
+  $$('.tabs button').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  ['form','raw','preview'].forEach(t => $('#pt-'+t).style.display = (t===b.dataset.t?'block':'none'));
+});
+$('#pv-go').onclick = async () => {
+  const msg = $('#pv-in').value.trim();
+  if (!msg) return;
+  $('#pv-out').innerHTML = '<div class="empty">生成中...</div>';
+  try {
+    const r = await api('/api/persona/preview', {method:'POST', body:{
+      message: msg, apply_emotion: $('#pv-emo').checked, apply_antiai: $('#pv-ai').checked}});
+    window.__LAST_PREVIEW = r;
+    const raw = r.raw || r.text || r.reply || '';
+    const final = r.final || r.text || r.reply || '';
+    let cands = '';
+    if (Array.isArray(r.candidates) && r.candidates.length) {
+      cands = '<div class="hint" style="margin-top:8px">候选：' +
+        r.candidates.map(c => `<div class="msg me" style="max-width:100%;margin-top:6px">${esc(c)}</div>`).join('') + '</div>';
+    }
+    const before = r.detect_before || r.antiai_before, after = r.detect_after || r.antiai_after;
+    const score = x => x ? `<span class="badge ${x.score<=30?'b-ok':(x.score<=60?'b-warn':'b-err')}">AI感 ${x.score} · 命中 ${(x.hits||[]).length}</span>` : '';
+    $('#pv-out').innerHTML =
+      `<div class="lbl">原始输出</div><div class="msg ai" style="max-width:100%">${esc(raw)}</div>` +
+      `<div class="lbl" style="margin-top:12px">最终输出（发送给对方的形态）</div>` +
+      `<div class="msg me" style="max-width:100%">${esc(final)}</div>` +
+      `<div class="row" style="margin-top:10px">${score(before)}${score(after)}` +
+      `<span class="badge b-gray">心情 ${esc(r.mood||'--')}</span>` +
+      `<span class="badge b-warn">不满 ${r.annoyance!=null?r.annoyance:'--'}</span></div>` + cands;
+    $('#pv-prompt').value = r.prompt || r.system_prompt || '(未返回)';
+  } catch(e) {
+    $('#pv-out').innerHTML = `<div class="empty" style="color:var(--err)">${esc(e.message)}</div>`;
+  }
+};
+
+// =========================================================================
+// 情绪
+// =========================================================================
+function bindSlider(id, vid) {
+  const s = $('#'+id);
+  if (!s) return;
+  const v = $('#'+vid);
+  const upd = () => v.textContent = s.value;
+  s.addEventListener('input', upd); upd();
+}
+['s-ple|v-ple','s-ene|v-ene','s-int|v-int','s-str|v-str','s-ann|v-ann']
+  .forEach(p => bindSlider(...p.split('|')));
+
+async function loadEmotion() {
+  const convId = Number($('#e-conv').value || 0);
+  const c = CONVS.find(x => x.id === convId);
+  if (!c) { $('#e-hist').innerHTML = '<tr><td colspan="7" class="empty">请选择会话</td></tr>'; return; }
+  try {
+    const d = await api(`/api/emotion/${c.peer_id}?chat_type=${c.chat_type}`);
+    const e = d.emotion || {};
+    $('#e-ple').textContent = Math.round(e.pleasure ?? 0);
+    $('#e-ene').textContent = Math.round(e.energy ?? 0);
+    $('#e-int').textContent = Math.round(e.intimacy ?? 0);
+    $('#e-str').textContent = Math.round(e.stress ?? 0);
+    $('#e-mood').textContent = '心情 ' + (d.mood || '--');
+    $('#e-rel').textContent = '关系 ' + (d.relation || '--');
+    $('#e-ann').textContent = '不满 ' + (d.annoyance ?? 0);
+    const cold = $('#e-cold');
+    cold.textContent = d.cold ? ('冷战中 ' + Math.round((d.cold_remaining||0)/60) + ' 分钟') : '未冷战';
+    cold.className = 'badge ' + (d.cold ? 'b-err' : 'b-gray');
+    $('#s-ple').value = e.pleasure ?? 0; $('#v-ple').textContent = e.pleasure ?? 0;
+    $('#s-ene').value = e.energy ?? 60;  $('#v-ene').textContent = e.energy ?? 60;
+    $('#s-int').value = e.intimacy ?? 20; $('#v-int').textContent = e.intimacy ?? 20;
+    $('#s-str').value = e.stress ?? 20;  $('#v-str').textContent = e.stress ?? 20;
+    $('#s-ann').value = d.annoyance ?? 0; $('#v-ann').textContent = d.annoyance ?? 0;
+
+    const h = await api(`/api/emotion/history?peer_id=${c.peer_id}&hours=168`);
+    $('#e-hist').innerHTML = (h.points || []).slice(-60).reverse().map(r => `<tr>
+      <td class="muted">${fmtTime(r.ts)}</td>
+      <td>${Math.round(r.pleasure)}</td><td>${Math.round(r.energy)}</td>
+      <td>${Math.round(r.intimacy)}</td><td>${Math.round(r.stress)}</td>
+      <td>${esc(r.mood||'')}</td>
+      <td><span class="badge ${r.annoyance>=65?'b-err':(r.annoyance>=15?'b-warn':'b-gray')}">${r.annoyance}</span></td>
+    </tr>`).join('') || '<tr><td colspan="7" class="empty">暂无历史</td></tr>';
+  } catch(e) { toast(e.message,'err'); }
+}
+$('#e-conv').onchange = loadEmotion;
+$('#e-apply').onclick = async () => {
+  const convId = Number($('#e-conv').value || 0);
+  const c = CONVS.find(x => x.id === convId);
+  if (!c) return toast('先选择会话','err');
+  try {
+    await api('/api/emotion/inject', {method:'POST', body:{
+      peer_id: c.peer_id, chat_type: c.chat_type,
+      pleasure: Number($('#s-ple').value), energy: Number($('#s-ene').value),
+      intimacy: Number($('#s-int').value), stress: Number($('#s-str').value),
+      annoyance: Number($('#s-ann').value)}});
+    toast('已注入','ok'); loadEmotion();
+  } catch(e) { toast(e.message,'err'); }
+};
+$('#e-reset').onclick = async () => {
+  const convId = Number($('#e-conv').value || 0);
+  const c = CONVS.find(x => x.id === convId);
+  if (!c) return toast('先选择会话','err');
+  try {
+    await api('/api/action', {method:'POST', body:{
+      action:'reset_annoyance', payload:{peer_id: c.peer_id, chat_type: c.chat_type}}});
+    toast('不满度已重置','ok'); loadEmotion();
+  } catch(e) { toast(e.message,'err'); }
+};
+$('#e-preset').onchange = () => {
+  const P = {
+    happy:  {ple:70, ene:80, int:55, str:10, ann:0},
+    tired:  {ple:10, ene:15, int:35, str:50, ann:5},
+    cold:   {ple:-20, ene:40, int:20, str:45, ann:45},
+    angry:  {ple:-60, ene:60, int:10, str:80, ann:72},
+    breakup:{ple:-85, ene:35, int:5,  str:95, ann:92},
+  }[ $('#e-preset').value ];
+  if (!P) return;
+  const set = (id, vid, v) => { $('#'+id).value = v; $('#'+vid).textContent = v; };
+  set('s-ple','v-ple',P.ple); set('s-ene','v-ene',P.ene);
+  set('s-int','v-int',P.int); set('s-str','v-str',P.str); set('s-ann','v-ann',P.ann);
+};
+
+// =========================================================================
+// 记忆
+// =========================================================================
+function curConv() {
+  const c = CONVS.find(x => x.id === Number($('#m-conv').value || 0));
+  return c || null;
+}
+async function loadMemories(query) {
+  const c = curConv();
+  if (!c) { $('#m-list').innerHTML = '<tr><td colspan="7" class="empty">请选择会话</td></tr>'; return; }
+  try {
+    let items;
+    if (query) {
+      const r = await api(`/api/memories/search?peer_id=${c.peer_id}&chat_type=${c.chat_type}&query=${encodeURIComponent(query)}`,
+        {method:'POST'});
+      items = r.results || [];
+    } else {
+      const r = await api(`/api/memories?peer_id=${c.peer_id}&chat_type=${c.chat_type}&kind=${$('#m-kind').value}`);
+      items = r.memories || [];
+    }
+    $('#m-count').textContent = items.length;
+    $('#m-list').innerHTML = items.map(m => `<tr>
+      <td>${m.id}</td>
+      <td><span class="badge ${m.kind==='profile'?'b-info':'b-purple'}">${esc(m.kind||'')}</span></td>
+      <td>${esc(m.text)}${m.pinned?' <span class="badge b-warn">置顶</span>':''}</td>
+      <td>${Number(m.importance||0).toFixed(2)}</td>
+      <td>${m.hit_count||0}</td>
+      <td class="muted">${fmtTime(m.ts)}</td>
+      <td><button class="btn ghost sm" data-e="${m.id}">改</button>
+          <button class="btn ghost sm" data-p="${m.id}" data-pv="${m.pinned?1:0}">${m.pinned?'取消置顶':'置顶'}</button>
+          <button class="btn danger sm" data-d="${m.id}">删</button></td>
+    </tr>`).join('') || '<tr><td colspan="7" class="empty">暂无记忆</td></tr>';
+    $('#m-list').querySelectorAll('[data-e]').forEach(b => b.onclick = async () => {
+      const t = prompt('修改内容：', '');
+      if (t == null) return;
+      await api('/api/memories/' + b.dataset.e, {method:'PUT', body:{text: t}});
+      toast('已修改','ok'); loadMemories();
+    });
+    $('#m-list').querySelectorAll('[data-p]').forEach(b => b.onclick = async () => {
+      await api(`/api/memories/${b.dataset.p}/pin?pinned=${b.dataset.pv==='1'?'false':'true'}`, {method:'POST'});
+      loadMemories();
+    });
+    $('#m-list').querySelectorAll('[data-d]').forEach(b => b.onclick = async () => {
+      if (!confirm('确认删除这条记忆？')) return;
+      await api('/api/memories/' + b.dataset.d, {method:'DELETE'});
+      toast('已删除','ok'); loadMemories();
+    });
+  } catch(e) { toast(e.message,'err'); }
+}
+$('#m-conv').onchange = () => loadMemories();
+$('#m-kind').onchange = () => loadMemories();
+$('#m-refresh').onclick = () => loadMemories();
+$('#m-search').onclick = () => loadMemories($('#m-q').value.trim());
+$('#m-add').onclick = async () => {
+  const c = curConv();
+  if (!c) return toast('先选择会话','err');
+  const text = prompt('记忆内容：', '');
+  if (!text) return;
+  const kind = (prompt('类型（profile / episodic）：', 'profile') || 'profile').trim();
+  try {
+    await api('/api/memories', {method:'POST', body:{
+      peer_id: c.peer_id, chat_type: c.chat_type, kind, text, importance: 0.8}});
+    toast('已新增','ok'); loadMemories();
+  } catch(e) { toast(e.message,'err'); }
+};
+
+// =========================================================================
+// 睡眠 / 周期
+// =========================================================================
+async function loadSleep() {
+  try {
+    const s = await api('/api/status');
+    const b = (s.bots && s.bots[0]) || null;
+    if (b) {
+      $('#sl-state').textContent = b.sleep_state || '--';
+      $('#sl-plan').textContent = b.sleep_plan || '--';
+      $('#sl-debt').textContent = b.sleep_debt != null ? (b.sleep_debt + ' 小时') : '--';
+      $('#sl-text').textContent = b.sleep_text || '--';
+      $('#cy-phase').textContent = b.cycle_phase || '不适用';
+      $('#cy-day').textContent = b.cycle_day != null ? ('第 ' + b.cycle_day + ' 天') : '--';
+      $('#cy-mult').textContent = b.cycle_mult != null ? ('×' + Number(b.cycle_mult).toFixed(2)) : '--';
+      $('#cy-eff').textContent = b.cycle_effect || '--';
+      const g = $('#cy-gate');
+      g.textContent = b.physio_enabled ? '已启用' : '性别门控：不适用';
+      g.className = 'badge ' + (b.physio_enabled ? 'b-pink' : 'b-gray');
+    }
+    const d = await api('/api/sleep/log');
+    $('#sl-log').innerHTML = (d.logs || []).map(r => `<tr>
+      <td>${esc(r.date||'')}</td><td>${esc(r.sleep_at||'--')}</td>
+      <td>${esc(r.wake_at||'--')}</td><td>${r.hours!=null?Number(r.hours).toFixed(1)+' h':'--'}</td>
+      <td class="muted">${esc(r.note||'')}</td></tr>`).join('') ||
+      '<tr><td colspan="5" class="empty">暂无记录</td></tr>';
+  } catch(e) {}
+}
+async function sleepAction(a) {
+  try { await api('/api/action', {method:'POST', body:{action:a, payload:{}}});
+        toast('已执行：' + a, 'ok'); setTimeout(loadSleep, 1200); }
+  catch(e) { toast(e.message,'err'); }
+}
+$('#sl-sleep').onclick = () => sleepAction('force_sleep');
+$('#sl-wake').onclick = () => sleepAction('force_wake');
+$('#sl-sync').onclick = () => sleepAction('sync_offline');
+
+// =========================================================================
+// 模型配置
+// =========================================================================
+let PROVIDERS = [], ROUTING = {};
+async function loadProviders() {
+  try {
+    const d = await api('/api/providers');
+    PROVIDERS = d.providers || [];
+    ROUTING = d.routing || {};
+    $('#rt-failover').value = (d.failover || []).join(', ');
+    $('#bg-usd').value = d.budget ?? 5;
+    $('#bg-act').value = d.budget_action || 'downgrade';
+    $('#bg-today').textContent = '$' + Number(d.cost_today || 0).toFixed(4);
+
+    $('#pv-list').innerHTML = PROVIDERS.map(p => `<tr>
+      <td class="mono">${esc(p.id)}</td>
+      <td>${esc(p.name||'')}</td>
+      <td class="small muted">${esc(p.base_url||'')}</td>
+      <td class="mono">${esc(p.model||'')}</td>
+      <td class="mono">${esc(p.api_key||'')}</td>
+      <td><span class="badge ${p.enabled?'b-ok':'b-gray'}">${p.enabled?'启用':'停用'}</span></td>
+      <td><button class="btn ghost sm" data-t="${esc(p.id)}">测试</button>
+          <button class="btn ghost sm" data-e2="${esc(p.id)}">编辑</button>
+          <button class="btn danger sm" data-d2="${esc(p.id)}">删</button></td>
+    </tr>`).join('') || '<tr><td colspan="7" class="empty">尚未配置供应商</td></tr>';
+
+    $('#pv-list').querySelectorAll('[data-t]').forEach(b => b.onclick = async () => {
+      b.disabled = true; b.textContent = '测试中';
+      try {
+        const r = await api(`/api/providers/${b.dataset.t}/test`, {method:'POST'});
+        toast((r.ok ? '连通 ' : '失败 ') + (r.detail || r.error || ''), r.ok ? 'ok' : 'err');
+      } catch(e) { toast(e.message,'err'); }
+      b.disabled = false; b.textContent = '测试';
+    });
+    $('#pv-list').querySelectorAll('[data-e2]').forEach(b => b.onclick = () =>
+      providerModal(PROVIDERS.find(p => p.id === b.dataset.e2)));
+    $('#pv-list').querySelectorAll('[data-d2]').forEach(b => b.onclick = async () => {
+      if (!confirm('确认删除供应商 ' + b.dataset.d2 + '？')) return;
+      try { await api('/api/providers/' + b.dataset.d2, {method:'DELETE'});
+            toast('已删除','ok'); loadProviders(); } catch(e){ toast(e.message,'err'); }
+    });
+    renderRouting();
+  } catch(e) { toast(e.message,'err'); }
+}
+function renderRouting() {
+  const tasks = PERSONA_META.tasks || [];
+  const opts = (cur) => PROVIDERS.map(p =>
+    `<option value="${esc(p.id)}" ${p.id===cur?'selected':''}>${esc(p.name||p.id)}</option>`).join('');
+  $('#rt-list').innerHTML = tasks.map(t => `<tr>
+    <td class="mono">${esc(t.key)}</td>
+    <td class="muted">${esc(t.label)}</td>
+    <td><select class="inp" data-task="${esc(t.key)}" style="max-width:260px">
+      <option value="">-- 默认 --</option>${opts(ROUTING[t.key] || '')}</select></td>
+  </tr>`).join('') || '<tr><td colspan="3" class="empty">暂无任务</td></tr>';
+  $('#rt-list').querySelectorAll('[data-task]').forEach(s => s.onchange = async () => {
+    const routing = {};
+    $('#rt-list').querySelectorAll('[data-task]').forEach(x => {
+      if (x.value) routing[x.dataset.task] = x.value;
+    });
+    try { await api('/api/routing', {method:'PUT', body:{routing}});
+          ROUTING = routing; toast('路由已更新','ok'); } catch(e){ toast(e.message,'err'); }
+  });
+}
+$('#rt-fo-save').onclick = async () => {
+  const ids = ($('#rt-failover').value || '')
+    .split(',').map(s => s.trim()).filter(Boolean);
+  try {
+    const r = await api('/api/routing', {method:'PUT', body:{failover: ids}});
+    const kept = r.failover || [];
+    $('#rt-failover').value = kept.join(', ');
+    toast(kept.length ? '故障转移链：' + kept.join(' → ') : '故障转移已清空', 'ok');
+  } catch(e) { toast(e.message, 'err'); }
+};
+function providerModal(p) {
+  const isNew = !p;
+  p = p || {id:'',name:'',base_url:'https://api.openai.com/v1',api_key:'',model:'gpt-4o-mini',
+            enabled:true,temperature:0.9,max_tokens:400,timeout:60,
+            supports_embedding:false,embedding_model:''};
+  $('#mbox').innerHTML = `
+    <h2 class="pt">${isNew?'新增':'编辑'}供应商</h2>
+    <p class="pd">OpenAI 兼容接口。API Key 会加密后存储，前端只显示掩码。</p>
+    <div class="grid g2">
+      <div class="field"><label>ID（唯一，英文）</label><input class="inp" id="pp-id" value="${esc(p.id)}" ${isNew?'':'readonly'}></div>
+      <div class="field"><label>显示名称</label><input class="inp" id="pp-name" value="${esc(p.name||'')}"></div>
+      <div class="field"><label>Base URL</label><input class="inp" id="pp-url" value="${esc(p.base_url||'')}"></div>
+      <div class="field"><label>API Key${isNew?'':'（留空不修改）'}</label><input class="inp" id="pp-key" type="password" placeholder="${isNew?'sk-...':'••••••'}"></div>
+      <div class="field"><label>对话模型</label><input class="inp" id="pp-model" value="${esc(p.model||'')}"></div>
+      <div class="field"><label>嵌入模型（可选）</label><input class="inp" id="pp-emb" value="${esc(p.embedding_model||'')}"></div>
+      <div class="field"><label>温度</label><input class="inp" id="pp-temp" type="number" step="0.05" value="${p.temperature}"></div>
+      <div class="field"><label>最大 Token</label><input class="inp" id="pp-max" type="number" value="${p.max_tokens}"></div>
+      <div class="field"><label>超时（秒）</label><input class="inp" id="pp-to" type="number" value="${p.timeout}"></div>
+      <div class="field"><label>能力</label>
+        <div class="row">
+          <label class="small"><input type="checkbox" id="pp-en" ${p.enabled?'checked':''}> 启用</label>
+          <label class="small"><input type="checkbox" id="pp-sup" ${p.supports_embedding?'checked':''}> 支持嵌入</label>
+        </div></div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button class="btn" id="pp-save">保存</button>
+      <button class="btn ghost" id="pp-cancel">取消</button>
+    </div>`;
+  openModal();
+  $('#pp-cancel').onclick = closeModal;
+  $('#pp-save').onclick = async () => {
+    const body = {
+      id: $('#pp-id').value.trim(), name: $('#pp-name').value.trim(),
+      base_url: $('#pp-url').value.trim(), api_key: $('#pp-key').value,
+      model: $('#pp-model').value.trim(), enabled: $('#pp-en').checked,
+      temperature: Number($('#pp-temp').value), max_tokens: Number($('#pp-max').value),
+      timeout: Number($('#pp-to').value),
+      supports_embedding: $('#pp-sup').checked,
+      embedding_model: $('#pp-emb').value.trim(),
+    };
+    if (!body.id) return toast('ID 不能为空','err');
+    try {
+      if (isNew) await api('/api/providers', {method:'POST', body});
+      else await api('/api/providers/' + body.id, {method:'PUT', body});
+      closeModal(); toast('已保存','ok'); loadProviders();
+    } catch(e) { toast(e.message,'err'); }
+  };
+}
+$('#pv-add').onclick = () => providerModal(null);
+$('#pv-testall').onclick = async () => {
+  toast('测试中...');
+  try {
+    const r = await api('/api/providers/test-all', {method:'POST'});
+    const ok = Object.values(r.results || {}).filter(x => x.ok).length;
+    toast(`${ok} / ${Object.keys(r.results||{}).length} 个供应商连通`, ok ? 'ok' : 'err');
+  } catch(e) { toast(e.message,'err'); }
+};
+$('#bg-save').onclick = async () => {
+  try {
+    await api('/api/config', {method:'PUT', body:{model:{
+      daily_budget_usd: Number($('#bg-usd').value), budget_action: $('#bg-act').value}}});
+    toast('预算已保存','ok');
+  } catch(e) { toast(e.message,'err'); }
+};
+
+// =========================================================================
+// 成本
+// =========================================================================
+async function loadCost() {
+  try {
+    const d = await api('/api/cost?range=' + $('#ct-range').value);
+    $('#ct-total').textContent = '$' + Number(d.total||0).toFixed(4);
+    $('#ct-task').innerHTML = (d.by_task||[]).map(r => `<tr>
+      <td class="mono">${esc(r.task||'')}</td><td>${r.calls}</td>
+      <td>$${Number(r.cost||0).toFixed(4)}</td>
+      <td class="muted">${r.latency?Math.round(r.latency)+' ms':'--'}</td></tr>`).join('')
+      || '<tr><td colspan="4" class="empty">暂无数据</td></tr>';
+    $('#ct-day').innerHTML = (d.by_day||[]).map(r => `<tr>
+      <td>${esc(r.day||'')}</td><td>${r.calls}</td>
+      <td>$${Number(r.cost||0).toFixed(4)}</td></tr>`).join('')
+      || '<tr><td colspan="3" class="empty">暂无数据</td></tr>';
+    const days = d.by_day || [];
+    const max = Math.max(0.0001, ...days.map(x => x.cost || 0));
+    $('#ct-bars').innerHTML = days.map(x =>
+      `<i style="height:${Math.max(3, (x.cost||0)/max*100)}%" title="${x.day} $${Number(x.cost||0).toFixed(4)}"></i>`).join('')
+      || '<span class="muted small">暂无数据</span>';
+  } catch(e) {}
+}
+$('#ct-range').onchange = loadCost;
+
+// =========================================================================
+// 图片库
+// =========================================================================
+async function loadMedia() {
+  try {
+    const d = await api('/api/media');
+    const items = d.items || [];
+    $('#md-count').textContent = items.length;
+    $('#md-grid').innerHTML = items.map(m => `
+      <div class="card" style="padding:8px;margin:0">
+        <img src="/api/media/file?path=${encodeURIComponent(m.path)}"
+             style="width:100%;border-radius:6px;display:block;background:var(--bg3);min-height:70px"
+             onerror="this.style.display='none'">
+        <div class="small muted" style="margin-top:6px">${esc((m.prompt||'').slice(0,52))}</div>
+        <div class="small" style="font-size:10.5px;color:var(--fg3)">${esc(m.kind||'')} · ${fmtTime(m.ts)}</div>
+      </div>`).join('') || '<div class="empty">暂无图片</div>';
+  } catch(e) {}
+}
+$('#md-refresh').onclick = loadMedia;
+$('#md-go').onclick = async () => {
+  const p = $('#md-prompt').value.trim();
+  if (!p) return toast('请输入描述','err');
+  toast('生成中，约 5~20 秒...');
+  try {
+    const r = await api('/api/media/generate', {method:'POST', body:{prompt:p}});
+    toast(r.ok ? '生成成功' : '生成失败', r.ok ? 'ok' : 'err');
+    loadMedia();
+  } catch(e) { toast(e.message,'err'); }
+};
+
+// =========================================================================
+// 沙盒
+// =========================================================================
+$('#sb-go').onclick = async () => {
+  const m = $('#sb-in').value.trim();
+  if (!m) return;
+  $('#sb-out').innerHTML = '<div class="empty">运行中...</div>';
+  try {
+    const r = await api('/api/sandbox/chat', {method:'POST', body:{message:m, rounds:1}});
+    $('#sb-out').innerHTML = `<pre class="mono" style="white-space:pre-wrap;margin:0">${
+      esc(JSON.stringify(r, null, 2))}</pre>`;
+  } catch(e) { $('#sb-out').innerHTML = `<div class="empty" style="color:var(--err)">${esc(e.message)}</div>`; }
+};
+$('#sb-in').onkeydown = e => { if (e.key === 'Enter') $('#sb-go').click(); };
+
+async function loadAntiai() {
+  try {
+    const d = await api('/api/sandbox/antiai');
+    $('#ai-avg').textContent = d.avg_score ?? '--';
+    $('#ai-pass').textContent = pct((d.pass_rate ?? 0) * 100);
+    $('#ai-hits').innerHTML = (d.top_hits || []).map(h =>
+      `<tr><td>${esc(h.name)}</td><td>${h.count}</td></tr>`).join('')
+      || '<tr><td colspan="2" class="empty">暂无命中</td></tr>';
+    $('#ai-recent').innerHTML = (d.recent || []).map(r => `<tr>
+      <td class="muted">${fmtTime(r.ts)}</td>
+      <td><span class="badge ${r.score<=30?'b-ok':(r.score<=60?'b-warn':'b-err')}">${r.score}</span></td>
+      <td>${r.passed?'通过':'改写'}</td>
+      <td class="small">${esc((r.text||'').slice(0,60))}</td></tr>`).join('')
+      || '<tr><td colspan="4" class="empty">暂无记录</td></tr>';
+  } catch(e) {}
+}
+
+// =========================================================================
+// 日志 / 审计
+// =========================================================================
+async function loadAudit() {
+  try {
+    const h = await api('/api/logs/history?limit=200');
+    LOGS = h.events || [];
+    renderLogs();
+    const d = await api('/api/audit');
+    $('#au-list').innerHTML = (d.logs || []).map(r => `<tr>
+      <td class="muted">${fmtTime(r.ts)}</td><td class="mono">${esc(r.action||'')}</td>
+      <td>${esc(r.detail||'')}</td><td class="muted">${esc(r.ip||'')}</td></tr>`).join('')
+      || '<tr><td colspan="4" class="empty">暂无记录</td></tr>';
+  } catch(e) {}
+}
+
+// =========================================================================
+// 系统设置
+// =========================================================================
+// =========================================================================
+// 通话记录
+// =========================================================================
+let CALLS = [], CUR_CALL = null;
+const CALL_DECISION_LABEL = {answered:'已接听', reject:'已拒接', ignore:'未接',
+                             busy:'占线', no_sdp:'信令失败', declined:'未接'};
+const CALL_EVENT_LABEL = {ringing:'振铃', answered:'接通', filler:'填充词',
+                          interrupt:'打断', decided:'决策', ended:'结束',
+                          error:'异常', heard:'听到', incoming:'来电'};
+async function loadCalls() {
+  try {
+    const d = await api('/api/calls?limit=80');
+    CALLS = d.calls || [];
+    const el = $('#call-list');
+    el.innerHTML = CALLS.map(c => {
+      const dur = c.duration_sec ? (c.duration_sec >= 60 ? Math.floor(c.duration_sec/60)+'分' : c.duration_sec+'秒') : '';
+      const badge = c.decision === 'answered' ? 'b-ok' : (c.decision === 'reject' ? 'b-err' : 'b-gray');
+      return `<div class="chat-item" data-id="${c.id}">
+        <div class="t"><span class="n">${esc(c.peer_name || c.peer_id)}</span>
+          <span class="badge ${badge}">${CALL_DECISION_LABEL[c.decision] || c.decision || '--'}</span></div>
+        <div class="p">${c.mode === 'video' ? '视频' : '语音'} · ${fmtTime(c.started_at)}${dur ? ' · '+dur : ''}</div>
+      </div>`;
+    }).join('') || '<div class="empty">暂无通话记录</div>';
+    el.querySelectorAll('.chat-item').forEach(x => x.onclick = () => openCall(Number(x.dataset.id)));
+  } catch(e) { toast(e.message, 'err'); }
+}
+async function openCall(id) {
+  const c = CALLS.find(x => x.id === id);
+  if (!c) return;
+  CUR_CALL = c;
+  $$('#call-list .chat-item').forEach(x => x.classList.toggle('on', Number(x.dataset.id) === id));
+  $('#cl-title').textContent = c.peer_name || ('peer ' + c.peer_id);
+  $('#cl-decision').textContent = CALL_DECISION_LABEL[c.decision] || c.decision || '--';
+  const meta = [];
+  if (c.mode === 'video') meta.push('视频');
+  if (c.direction === 'incoming') meta.push('来电');
+  if (c.ring_delay_ms) meta.push('振铃' + (c.ring_delay_ms/1000).toFixed(1) + 's');
+  if (c.duration_sec) meta.push((c.duration_sec>=60?Math.floor(c.duration_sec/60)+'分':c.duration_sec+'秒'));
+  if (c.turn_count) meta.push(c.turn_count + '轮');
+  if (c.avg_latency_ms) meta.push('均延迟' + c.avg_latency_ms + 'ms');
+  $('#cl-meta').textContent = meta.join(' · ');
+
+  const d = await api(`/api/calls/${id}`);
+  const body = $('#call-body');
+  let html = '';
+  const evs = d.events || [];
+  if (evs.length) {
+    html += '<div class="call-timeline">' + evs.map(e =>
+      `<span class="cev"><b>${CALL_EVENT_LABEL[e.event] || e.event}</b>${e.detail ? ' ' + esc(e.detail) : ''}</span>`
+    ).join('') + '</div>';
+  }
+  html += (d.transcript || []).map(m => {
+    const cls = m.speaker === 'bot' ? 'me' : 'them';
+    const who = m.speaker === 'bot' ? '她' : '对方';
+    return `<div class="msg ${cls}">${esc(m.text)}
+      <div class="meta">${who} · ${fmtTime(m.ts)}${m.latency_ms ? ' · 延迟'+m.latency_ms+'ms' : ''}${m.stt_ms ? ' · 识别'+m.stt_ms+'ms' : ''}</div></div>`;
+  }).join('') || '<div class="empty">无转写</div>';
+  body.innerHTML = html;
+  body.scrollTop = body.scrollHeight;
+}
+
+async function loadConfig() {
+  try {
+    const c = await api('/api/config');
+    $('#cf-user').value = c.boxim.username || '';
+    $('#cf-base').value = c.boxim.base_url || '';
+    $('#cf-ws').value = c.boxim.ws_url || '';
+    $('#cf-ssl').checked = !!c.boxim.ssl_verify;
+    $('#cf-disc').checked = !!c.boxim.disconnect_on_sleep;
+    const h = c.humanize || {};
+    $('#cf-tbase').value = h.typing_base ?? '';
+    $('#cf-tchar').value = h.typing_per_char ?? '';
+    $('#cf-tcap').value  = h.typing_cap ?? '';
+    $('#cf-split').value = h.split_max_chars ?? '';
+    $('#cf-typo').value  = h.typo_rate ?? '';
+    $('#cf-recall').value= h.recall_rate ?? '';
+    $('#cf-limit').value = h.daily_send_limit ?? '';
+    const sl = c.sleep || {};
+    $('#cf-sleepat').value = sl.avg_sleep_at || '';
+    $('#cf-wakeat').value  = sl.avg_wake_at || '';
+    $('#cf-jit').value     = sl.jitter_minutes ?? '';
+    $('#cf-allnight').value= sl.all_nighter_p ?? '';
+    const m = c.memory || {};
+    $('#cf-win').value   = m.short_window ?? '';
+    $('#cf-topk').value  = m.top_k ?? '';
+    $('#cf-minimp').value= m.min_importance ?? '';
+    const md = c.media || {};
+    $('#cf-imgp').value  = md.image_prob ?? '';
+    $('#cf-imgcd').value = md.cooldown_sec ?? '';
+    const sk = c.sticker || {};
+    $('#cf-sk-app').value   = sk.append_prob ?? '';
+    $('#cf-sk-solo').value  = sk.solo_prob ?? '';
+    $('#cf-sk-cold').value  = sk.cold_solo_prob ?? '';
+    $('#cf-sk-cd').value    = sk.cooldown_sec ?? '';
+    $('#cf-sk-limit').value = sk.daily_limit ?? '';
+    $('#cf-sk-llm').checked = !!sk.llm_pick;
+    $('#cf-sk-desc').checked = !!sk.descriptive_only;
+    const cl = c.call || {};
+    $('#cf-call-on').checked = cl.enabled !== false;
+    $('#cf-call-int').checked = cl.interrupt_enabled !== false;
+    $('#cf-call-ans').value = cl.base_answer_prob ?? '';
+    $('#cf-call-minrel').value = cl.min_relation || '';
+    $('#cf-call-nightrel').value = cl.night_min_relation || '';
+    $('#cf-call-annoy').value = cl.max_annoyance ?? '';
+    $('#cf-call-cd').value = cl.cooldown_sec ?? '';
+    $('#cf-call-ringlo').value = cl.ring_delay_min ?? '';
+    $('#cf-call-ringhi').value = cl.ring_delay_max ?? '';
+    $('#cf-call-filler').value = cl.filler_after_ms ?? '';
+    $('#cf-call-chars').value = cl.reply_max_chars ?? '';
+    $('#cf-call-dur').value = cl.max_duration_min ?? '';
+    $('#cf-call-limit').value = cl.daily_limit ?? '';
+    const vo = c.voice || {};
+    $('#cf-voice-tts').value = vo.tts_voice || '';
+    $('#cf-voice-rate').value = vo.tts_rate || '';
+    $('#cf-voice-pitch').value = vo.tts_pitch || '';
+    $('#cf-voice-stt').value = vo.stt_primary || '';
+    $('#cf-voice-stt2').value = vo.stt_fallback || '';
+    $('#cf-voice-conc').value = vo.tts_concurrency ?? '';
+  } catch(e) { toast(e.message,'err'); }
+}
+$('#cf-load').onclick = loadConfig;
+$('#cf-save').onclick = async () => {
+  const n = id => Number($('#'+id).value);
+  const body = {
+    boxim: {username: $('#cf-user').value.trim(), password: $('#cf-pass').value,
+            base_url: $('#cf-base').value.trim(), ws_url: $('#cf-ws').value.trim(),
+            ssl_verify: $('#cf-ssl').checked, disconnect_on_sleep: $('#cf-disc').checked},
+    humanize: {typing_base:n('cf-tbase'), typing_per_char:n('cf-tchar'), typing_cap:n('cf-tcap'),
+               split_max_chars:n('cf-split'), typo_rate:n('cf-typo'), recall_rate:n('cf-recall'),
+               daily_send_limit:n('cf-limit')},
+    sleep: {avg_sleep_at:$('#cf-sleepat').value.trim(), avg_wake_at:$('#cf-wakeat').value.trim(),
+            jitter_minutes:n('cf-jit'), all_nighter_p:n('cf-allnight')},
+    memory: {short_window:n('cf-win'), top_k:n('cf-topk'), min_importance:n('cf-minimp')},
+    media: {image_prob:n('cf-imgp'), cooldown_sec:n('cf-imgcd')},
+    sticker: {append_prob:n('cf-sk-app'), solo_prob:n('cf-sk-solo'),
+              cold_solo_prob:n('cf-sk-cold'), cooldown_sec:n('cf-sk-cd'),
+              daily_limit:n('cf-sk-limit'), llm_pick:$('#cf-sk-llm').checked,
+              descriptive_only:$('#cf-sk-desc').checked},
+    call: {enabled:$('#cf-call-on').checked, interrupt_enabled:$('#cf-call-int').checked,
+           base_answer_prob:n('cf-call-ans'), min_relation:$('#cf-call-minrel').value.trim(),
+           night_min_relation:$('#cf-call-nightrel').value.trim(),
+           max_annoyance:n('cf-call-annoy'), cooldown_sec:n('cf-call-cd'),
+           ring_delay_min:n('cf-call-ringlo'), ring_delay_max:n('cf-call-ringhi'),
+           filler_after_ms:n('cf-call-filler'), reply_max_chars:n('cf-call-chars'),
+           max_duration_min:n('cf-call-dur'), daily_limit:n('cf-call-limit')},
+    voice: {tts_voice:$('#cf-voice-tts').value.trim(), tts_rate:$('#cf-voice-rate').value.trim(),
+            tts_pitch:$('#cf-voice-pitch').value.trim(),
+            stt_primary:$('#cf-voice-stt').value.trim(),
+            stt_fallback:$('#cf-voice-stt2').value.trim(),
+            tts_concurrency:n('cf-voice-conc')},
+  };
+  try { await api('/api/config', {method:'PUT', body});
+        toast('设置已保存','ok'); } catch(e) { toast(e.message,'err'); }
+};
+
+// =========================================================================
+// 表情包
+// =========================================================================
+let ST_ALBUMS = [], ST_LABEL = '', CUR_GROUP = 0;
+const ST_LABEL_NAMES = {
+  happy:'开心', laugh:'好笑', love:'喜欢', sad:'难过', angry:'生气',
+  tired:'疲惫', sleep:'睡觉', morning:'早安', greet:'招呼', confused:'疑惑',
+  food:'吃', cute:'可爱', work:'忙', cool:'赞', surprise:'惊讶',
+  shy:'害羞', cold:'冷淡', observe:'围观', active:'活力'
+};
+
+async function loadStickers() {
+  try {
+    const [alb, usg] = await Promise.all([
+      api('/api/stickers/albums'), api('/api/stickers/usage?limit=50')
+    ]);
+    ST_ALBUMS = alb.albums || [];
+    $('#st-total').textContent = alb.total;
+    $('#st-albums').textContent = ST_ALBUMS.length + ' 个专辑';
+    $('#st-sent').textContent = (usg.items || []).length;
+
+    const cf = await api('/api/config');
+    const sc = cf.sticker || {};
+    $('#st-app').textContent = Math.round((sc.append_prob || 0) * 100) + '%';
+    $('#st-solo').textContent = Math.round((sc.solo_prob || 0) * 100) + '%';
+
+    $('#st-album').innerHTML = '<option value="0">全部专辑</option>' +
+      ST_ALBUMS.map(a => `<option value="${a.album_id}">${esc(a.album_name)} (${a.n})</option>`).join('');
+
+    $('#st-usage').innerHTML = (usg.items || []).map(u => `<tr>
+      <td class="muted">${fmtTime(u.ts)}</td><td>${esc(u.chat_id)}</td>
+      <td>${esc(u.name || '')}</td><td class="muted">${esc(u.album_name || '')}</td>
+    </tr>`).join('') || '<tr><td colspan="4" class="empty">还没发过表情</td></tr>';
+
+    // 标签按钮
+    const all = await api('/api/stickers?limit=400');
+    const counter = {};
+    (all.items || []).forEach(i => (i.labels || []).forEach(l => counter[l] = (counter[l]||0)+1));
+    const btns = Object.entries(counter).sort((a,b) => b[1]-a[1]).map(([k,v]) =>
+      `<button class="btn ghost sm" data-lb="${k}">${esc(ST_LABEL_NAMES[k]||k)} <span class="muted">${v}</span></button>`).join('');
+    $('#st-labels').innerHTML = `<button class="btn sm" data-lb="">全部</button>` + btns;
+    $('#st-labels').querySelectorAll('[data-lb]').forEach(b => b.onclick = () => {
+      ST_LABEL = b.dataset.lb;
+      $$('#st-labels [data-lb]').forEach(x => x.classList.toggle('btn', x === b));
+      $$('#st-labels [data-lb]').forEach(x => { if (x!==b) x.classList.add('ghost'); });
+      $('#st-label-tag').textContent = ST_LABEL ? (ST_LABEL_NAMES[ST_LABEL]||ST_LABEL) : '全部';
+      browseStickers();
+    });
+    browseStickers();
+  } catch(e) { toast(e.message, 'err'); }
+}
+
+async function browseStickers() {
+  try {
+    const q = $('#st-q').value.trim();
+    const alb = $('#st-album').value;
+    const params = new URLSearchParams({ limit: 60 });
+    if (ST_LABEL) params.set('label', ST_LABEL);
+    if (q) params.set('q', q);
+    if (alb && alb !== '0') params.set('album_id', alb);
+    const d = await api('/api/stickers?' + params.toString());
+    renderStickerGrid('#st-grid', d.items || []);
+  } catch(e) { toast(e.message, 'err'); }
+}
+
+function renderStickerGrid(sel, items) {
+  $(sel).innerHTML = items.map(s => `
+    <div class="card" style="padding:7px;margin:0">
+      <img src="${esc(s.image_url || s.thumb_url || '')}" loading="lazy"
+           style="width:100%;aspect-ratio:1;object-fit:contain;border-radius:6px;background:var(--bg3)"
+           onerror="this.src='';this.alt='×'">
+      <div class="small" style="margin-top:5px;text-align:center">${esc(s.name || s.id)}</div>
+      <div class="small muted" style="font-size:10px;text-align:center">${esc(s.album_name || '')}</div>
+      ${(s.labels && s.labels.length) ? `<div style="text-align:center;margin-top:3px">${
+        s.labels.slice(0,3).map(l=>`<span class="badge b-gray" style="font-size:9px;padding:0 4px">${esc(ST_LABEL_NAMES[l]||l)}</span>`).join(' ')}</div>` : ''}
+    </div>`).join('') || '<div class="empty">没有匹配的表情</div>';
+}
+
+$('#st-refresh').onclick = loadStickers;
+$('#st-search').onclick = browseStickers;
+$('#st-q').onkeydown = e => { if (e.key === 'Enter') browseStickers(); };
+$('#st-album').onchange = browseStickers;
+$('#st-sync').onclick = async () => {
+  toast('同步中，可能需要十几秒...');
+  try {
+    const r = await api('/api/stickers/sync', {method:'POST'});
+    toast(`同步完成：${r.count} 张（库内共 ${r.total}）`, 'ok');
+    loadStickers();
+  } catch(e) { toast(e.message, 'err'); }
+};
+$('#st-go').onclick = async () => {
+  try {
+    const p = new URLSearchParams({
+      mood: $('#st-mood').value, user_text: $('#st-text').value,
+      annoyance: $('#st-ann').value || 0, limit: 6
+    });
+    const d = await api('/api/stickers/pick?' + p.toString());
+    if (!d.items || !d.items.length) {
+      $('#st-picked').innerHTML = '<div class="empty">这个场景下没有合适的表情</div>';
+      return;
+    }
+    $('#st-picked').innerHTML =
+      `<div style="grid-column:1/-1" class="hint">判定标签：${
+        (d.labels||[]).map(l=>ST_LABEL_NAMES[l]||l).join(' → ') || '（无）'}</div>` +
+      d.items.map(s => `
+        <div class="card" style="padding:7px;margin:0;border-color:var(--acc)">
+          <img src="${esc(s.image_url||'')}" style="width:100%;aspect-ratio:1;object-fit:contain;border-radius:6px;background:var(--bg3)">
+          <div class="small" style="margin-top:5px;text-align:center">${esc(s.name)}</div>
+        </div>`).join('');
+  } catch(e) { toast(e.message, 'err'); }
+};
+
+// =========================================================================
+// 群聊参与
+// =========================================================================
+async function loadGroups() {
+  try {
+    const d = await api('/api/groups');
+    const its = d.interests || [];
+    $('#gp-interests').innerHTML = its.length
+      ? its.map(t => `<span class="badge b-purple">${esc(t)}</span>`).join(' ')
+      : '<span class="muted small">未提取到兴趣话题，检查人设里的爱好/职业</span>';
+
+    const groups = d.groups || [];
+    $('#gp-list').innerHTML = groups.map(g => `<tr>
+      <td>${esc(g.title)}</td><td class="mono">${g.group_id}</td>
+      <td>${(g.hot_topics||[]).slice(0,3).map(t =>
+            `<span class="badge b-info">${esc(t.keyword)} ${t.heat}</span>`).join(' ') || '<span class="muted">—</span>'}</td>
+      <td>${g.momentum > 0 ? `<span class="badge b-ok">${g.momentum.toFixed(2)}</span>` : '<span class="muted">0</span>'}</td>
+      <td>${g.replies}</td>
+      <td>${g.ignores ? `<span class="badge b-warn">${g.ignores}</span>` : '0'}</td>
+      <td><button class="btn ghost sm" data-g="${g.group_id}">详情</button></td>
+    </tr>`).join('') || '<tr><td colspan="7" class="empty">还没有群聊记录</td></tr>';
+    $('#gp-list').querySelectorAll('[data-g]').forEach(b => b.onclick = () => loadGroupDetail(Number(b.dataset.g)));
+
+    if (groups.length && !CUR_GROUP) loadGroupDetail(groups[0].group_id);
+  } catch(e) { toast(e.message, 'err'); }
+  loadGroupParams();
+}
+
+async function loadGroupDetail(gid) {
+  CUR_GROUP = gid;
+  try {
+    const d = (await api('/api/group/' + gid)).data || {};
+    $('#gp-detail-tag').textContent = '群 ' + gid;
+    $('#gp-topics').innerHTML = (d.topics || []).map(t => `<tr>
+      <td>${esc(t.keyword)}</td>
+      <td><span class="badge ${t.heat>1.5?'b-err':(t.heat>0.6?'b-warn':'b-gray')}">${Number(t.heat).toFixed(2)}</span></td>
+      <td>${t.hits}</td></tr>`).join('') || '<tr><td colspan="3" class="empty">暂无话题</td></tr>';
+
+    const e = d.engagement || {};
+    $('#gp-engage').innerHTML = `
+      <div class="kv"><span class="k">参与惯性</span><span class="v">${(d.momentum||0).toFixed(2)}</span></div>
+      <div class="kv"><span class="k">发言次数</span><span class="v">${e.replies||0}</span></div>
+      <div class="kv"><span class="k">连续被无视</span><span class="v">${d.ignores||0}</span></div>
+      <div class="kv"><span class="k">上次发言</span><span class="v">${e.last_spoke_ts?fmtTime(e.last_spoke_ts):'—'}</span></div>`;
+    const rules = d.rules || {};
+    try { $('#gp-kw').value = JSON.parse(rules.interest_keywords || '[]').join(', '); }
+    catch(err) { $('#gp-kw').value = ''; }
+  } catch(e) { toast(e.message, 'err'); }
+}
+
+$('#gp-save-kw').onclick = async () => {
+  if (!CUR_GROUP) return toast('先选择一个群', 'err');
+  const kws = $('#gp-kw').value.split(',').map(s => s.trim()).filter(Boolean);
+  try {
+    await api(`/api/group/${CUR_GROUP}/interest`, {method:'POST', body: kws});
+    toast('已保存该群关键词', 'ok'); loadGroupDetail(CUR_GROUP);
+  } catch(e) { toast(e.message, 'err'); }
+};
+$('#gp-reset').onclick = async () => {
+  if (!CUR_GROUP) return toast('先选择一个群', 'err');
+  if (!confirm('清空该群的话题热度与参与状态？')) return;
+  try {
+    await api(`/api/group/${CUR_GROUP}/reset`, {method:'POST'});
+    toast('已清空', 'ok'); loadGroupDetail(CUR_GROUP); loadGroups();
+  } catch(e) { toast(e.message, 'err'); }
+};
+
+async function loadGroupParams() {
+  try {
+    const cf = await api('/api/config');
+    const g = cf.group || {};
+    $('#gpc-max').value = g.interest_max_weight;
+    $('#gpc-min').value = g.interest_min_score;
+    $('#gpc-mom').value = g.momentum_bonus;
+    $('#gpc-momw').value = g.momentum_window_sec;
+    $('#gpc-tb').value = g.topic_boost_max;
+    $('#gpc-int').value = g.interrupt_penalty;
+    $('#gpc-floor').value = g.floor_weight;
+    $('#gpc-cap').value = g.proactive_hourly_cap;
+  } catch(e) {}
+}
+$('#gpc-save').onclick = async () => {
+  const n = id => Number($('#'+id).value);
+  try {
+    await api('/api/config', {method:'PUT', body:{group:{
+      interest_max_weight: n('gpc-max'), interest_min_score: n('gpc-min'),
+      momentum_bonus: n('gpc-mom'), momentum_window_sec: n('gpc-momw'),
+      topic_boost_max: n('gpc-tb'), interrupt_penalty: n('gpc-int'),
+      floor_weight: n('gpc-floor'), proactive_hourly_cap: n('gpc-cap'),
+    }}});
+    toast('参数已保存（热生效）', 'ok');
+  } catch(e) { toast(e.message, 'err'); }
+};
+
+// =========================================================================
+// 模态
+// =========================================================================
+function openModal(){ $('#modal').classList.add('on'); }
+function closeModal(){ $('#modal').classList.remove('on'); }
+$('#modal').onclick = e => { if (e.target.id === 'modal') closeModal(); };
+
+// =========================================================================
+// 页面加载钩子
+// =========================================================================
+const LOAD = {
+  dash: refreshDash,
+  chat: loadConversations,
+  persona: loadPersona,
+  emotion: () => { loadConversations().then(loadEmotion); },
+  memory: () => { loadConversations().then(() => loadMemories()); },
+  sleep: loadSleep,
+  sticker: loadStickers,
+  group: loadGroups,
+  call: loadCalls,
+  model: loadProviders,
+  cost: loadCost,
+  media: loadMedia,
+  sandbox: loadAntiai,
+  logs: loadAudit,
+  system: loadConfig,
+};
+
+async function refreshAll() {
+  await refreshDash();
+  await loadConversations();
+  loadPersona();
+  loadProviders();
+  loadAntiai();
+}
+
+setInterval(() => { $('#tb-clock').textContent = fmtClock(); }, 1000);
+setInterval(() => {
+  if (!TOKEN) return;
+  refreshDash();
+  const active = $$('.page.on')[0];
+  if (active && active.id === 'p-dash') return;
+}, 15000);
+
+// 启动
+if (TOKEN) { enter(); } else { $('#login').style.display = 'flex'; }
+</script>
+</body>
+</html>

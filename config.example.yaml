@@ -1,0 +1,241 @@
+boxim:
+  username: 你的用户名
+  password: 'YOUR_BOXIM_PASSWORD'
+  base_url: https://www.boximchat.com/
+  ws_url: wss://www.boximchat.com/im
+  ssl_verify: true
+  disconnect_on_sleep: true
+  sync_nickname: false
+  accounts: []
+model:
+  providers:
+  - id: main
+    name: 主模型
+    base_url: https://你的接口地址/v1
+    model: 你的模型名
+    enabled: true
+    temperature: 0.92
+    max_tokens: 400
+    timeout: 90
+    supports_embedding: true
+    embedding_model: bge-m3
+    api_key: 'YOUR_API_KEY'
+  - id: cheap
+    name: 轻量模型
+    base_url: https://你的接口地址/v1
+    model: 你的轻量模型名
+    enabled: true
+    temperature: 0.6
+    max_tokens: 400
+    timeout: 90
+    supports_embedding: false
+    embedding_model: ''
+    api_key: 'YOUR_API_KEY'
+  - id: vision
+    name: 视觉模型
+    base_url: https://你的接口地址/v1
+    model: 你的视觉模型名
+    enabled: true
+    temperature: 0.7
+    max_tokens: 400
+    timeout: 90
+    supports_embedding: false
+    embedding_model: ''
+    api_key: 'YOUR_API_KEY'
+  - id: backup
+    name: 备用模型
+    base_url: https://你的接口地址/v1
+    model: 你的备用模型名
+    enabled: true
+    temperature: 0.92
+    max_tokens: 400
+    timeout: 90
+    supports_embedding: false
+    embedding_model: ''
+    api_key: 'YOUR_API_KEY'
+  routing:
+    reply_generate: main
+    probe_reply: main
+    intent_rewrite: cheap
+    memory_extract: cheap
+    emotion_update: cheap
+    anti_ai_fix: cheap
+    vision: vision
+    image_prompt: cheap
+    embedding: main
+  failover:
+  - backup
+  daily_budget_usd: 999.0
+  budget_action: degrade
+humanize:
+  typing_base: 0.8
+  typing_per_char: 0.06
+  typing_cap: 4.0
+  split_max_chars: 45
+  split_max_parts: 3
+  split_gap_min: 0.5
+  split_gap_max: 1.5
+  read_delay_min: 0.5
+  read_delay_max: 2.0
+  typo_rate: 0.05
+  recall_rate: 0.05
+  merge_window_min: 1.5
+  merge_window_max: 3.0
+  daily_send_limit: 300
+  min_send_interval: 1.0
+  group_at_weight: 1.0
+  group_mention_weight: 0.8
+  group_context_weight: 0.6
+  group_interest_weight: 0.25
+  group_other_weight: 0.05
+  group_burst_penalty: 0.5
+group:
+  enabled: true
+  interest_max_weight: 0.72
+  interest_min_score: 0.22
+  momentum_bonus: 0.35
+  momentum_window_sec: 600.0
+  topic_boost_max: 0.25
+  topic_window_sec: 420.0
+  interrupt_penalty: 0.45
+  interrupt_window_sec: 90.0
+  floor_weight: 0.05
+  proactive_min_weight: 0.42
+  proactive_hourly_cap: 4
+sticker:
+  enabled: true
+  append_prob: 0.22
+  solo_prob: 0.12
+  cold_solo_prob: 0.55
+  cooldown_sec: 25.0
+  daily_limit: 60
+  repeat_window_sec: 604800.0
+  llm_pick: true
+  llm_candidates: 12
+  auto_sync: true
+  sync_interval_sec: 86400.0
+  descriptive_only: true
+  preferred_albums: []
+sleep:
+  enabled: true
+  base_sleep_minute: 1430
+  sleep_jitter_sigma: 25
+  sleep_earliest: 1350
+  sleep_latest: 1650
+  never_on_the_hour: true
+  duration_mean: 7.8
+  duration_sigma: 0.9
+  duration_min: 5.5
+  duration_max: 11.0
+  drowsy_lead_min: 45
+  waking_lead_min: 10
+  p_all_nighter: 0.07
+  p_no_goodbye: 0.2
+  p_sleep_back: 0.2
+  p_oversleep: 0.08
+  p_wake_early: 0.05
+physio:
+  enabled: true
+  cycle_min: 23
+  cycle_max: 33
+  period_days: 5
+  light_cycle_rate: 0.2
+memory:
+  enabled: true
+  episodic_top_k: 5
+  profile_max_items: 40
+  working_turns: 12
+  embedding_enabled: true
+  embedding_provider: ''
+  embedding_dim: 1024
+media:
+  enabled: true
+  gen_endpoint: https://image.pollinations.ai/prompt/{prompt}
+  gen_model: flux
+  gen_width: 768
+  gen_height: 768
+  gen_retry: 3
+  gen_rate_gap: 15.0
+  user_agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)
+  search_engine: bing
+  cache_enabled: true
+voice:
+  enabled: true
+  tts_voice: zh-CN-XiaoxiaoNeural
+  tts_rate: +0%
+  tts_pitch: +0Hz
+  tts_volume: +0%
+  tts_timeout: 30
+  tts_concurrency: 4
+  mood_rate:
+    开心: +8%
+    平静: +0%
+    低落: -10%
+    烦躁: +12%
+    疲惫: -14%
+    刚醒: -18%
+  mood_pitch:
+    开心: +2Hz
+    平静: +0Hz
+    低落: -3Hz
+    烦躁: +1Hz
+    疲惫: -2Hz
+    刚醒: -4Hz
+  mood_volume:
+    开心: +0%
+    平静: +0%
+    低落: -8%
+    烦躁: +5%
+    疲惫: -12%
+    刚醒: -15%
+  sentence_gap_ms:
+  - 200
+  - 500
+  breath_gap_ms: 150
+  breath_every_chars: 18
+  stt_primary: telespeechasr
+  stt_fallback: sensevoicesmall
+  stt_timeout: 30
+  sample_rate: 16000
+  channels: 1
+  sample_width: 2
+call:
+  enabled: true
+  allow_video: false
+  video_excuse: 我摄像头好像坏了，语音行吗
+  base_answer_prob: 0.92
+  min_relation: acquaintance
+  max_annoyance: 60
+  night_quiet_start: 0
+  night_quiet_end: 360
+  night_min_relation: close
+  cooldown_sec: 300
+  ring_delay_min: 2.5
+  ring_delay_max: 7.0
+  ring_delay_busy: 8.0
+  ring_delay_sleepy: 12.0
+  ring_timeout: 45
+  max_duration_min: 30
+  soft_duration_min: 12
+  vad_silence_ms: 600
+  vad_min_speech_ms: 250
+  filler_after_ms: 800
+  reply_max_chars: 25
+  interrupt_enabled: true
+  daily_limit: 10
+  unanswered_reply_after_wake: true
+  intimacy_gain_per_min: 0.4
+  energy_cost_per_min: 0.8
+  anger_gain: 15
+console:
+  enabled: true
+  host: 0.0.0.0
+  port: 8899
+  port_scan_from: 8800
+  port_scan_to: 8900
+  username: admin
+  password: ''
+  session_hours: 24
+db_path: data/humanbot.db
+log_level: INFO
+persona_file: persona.yaml

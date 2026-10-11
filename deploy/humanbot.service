@@ -1,0 +1,29 @@
+[Unit]
+Description=HumanBot - Super-human-like AI Bot System
+Documentation=file:///www/wwwroot/humanbot/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/www/wwwroot/humanbot
+Environment=PYTHONUNBUFFERED=1
+
+# 项目自带 logs/ 目录，这里额外把 stdout/stderr 也落盘，方便排查
+ExecStartPre=/bin/mkdir -p /www/wwwroot/humanbot/logs
+ExecStart=/www/wwwroot/humanbot/venv/bin/python -m humanbot.main
+
+# 崩溃自动拉起；BOT 长时间运行内存上涨时可靠重启回收
+Restart=always
+RestartSec=10
+
+# 优雅停止：给足时间把离线游标与情绪状态落库
+KillSignal=SIGINT
+TimeoutStopSec=30
+
+StandardOutput=append:/www/wwwroot/humanbot/logs/service.log
+StandardError=append:/www/wwwroot/humanbot/logs/service.err.log
+
+[Install]
+WantedBy=multi-user.target

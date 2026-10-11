@@ -1,0 +1,19 @@
+# Runtime / secrets - never commit these
+data/
+logs/
+assets/media/
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# 真实配置（含账号密码 / API key），绝不入库。
+# 首次使用请复制模板：cp config.example.yaml config.yaml
+config.yaml
+
+# local overrides
+config.local.yaml
+persona.local.yaml

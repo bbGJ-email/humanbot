@@ -1,0 +1,30 @@
+# HumanBot runtime dependencies
+# Python 3.9+
+
+# BoxIM SDK (provides the im client, websocket transport, private/group messaging,
+# plus the sticker/emoji catalog API). PyPI distribution name is boxim-sdk,
+# but the import name is `boxim`.
+boxim-sdk>=3.2.7
+
+# Web console
+fastapi>=0.110.0
+uvicorn>=0.27.0
+pydantic>=2.5.0
+
+# Config / templating
+PyYAML>=6.0
+
+# HTTP client (media generation, image search, provider calls)
+requests>=2.31.0
+
+# Crypto (API key encryption + console password hashing)
+cryptography>=42.0.0
+
+# ---- Voice call (音视频通话) ------------------------------------------------
+# BoxIM SDK 只做通话信令和媒体流抽象，真正的 WebRTC 实现要自己接。
+# 实测 aiortc 1.15 在 Python 3.14 上可直接安装（av 提供 cp311-abi3 wheel）。
+aiortc>=1.9.0
+numpy>=1.24.0
+
+# 中文 TTS：免费、免注册、无需 API key，中文自然度第一梯队
+edge-tts>=6.1.0
