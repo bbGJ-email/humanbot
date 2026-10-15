@@ -66,6 +66,7 @@ class CallFlow:
         self.peer_id: int = 0
         self.peer_name: str = ""
         self.mode: str = "voice"
+        self.pending_offer: Optional[Dict[str, Any]] = None  # 来电消息里带的 offer
 
         self.talking = False
         self._interrupted = False
@@ -94,6 +95,9 @@ class CallFlow:
         self.peer_id = peer_id
         self.peer_name = peer_name or str(peer_id)
         self.mode = mode
+        # 协议兼容：来电消息(100/101)的 content 里通常就是 offer，客户端
+        # 直接拿它 createAnswer，然后把 answer 随 accept 一起回给主叫。
+        self.pending_offer = (extra or {}).get("offer")
         self._started_at = time.time()
         self._turn = 0
         self._latencies = []
@@ -168,33 +172,67 @@ class CallFlow:
         self.bridge = RTCBridge(self.conn, self.settings)
         try:
             await self.bridge.open(self.peer_id, session)
-            # 先 accept（此时还没有 offer），再等主叫的 offer 过来生成 answer
-            await session.accept()
+
+            # 协议兼容（照客户端实现）：来电消息里已经带了 offer，此时要
+            # setRemoteDescription + createAnswer，并把 answer 随 accept 一起
+            # 提交——服务端把 answer 装进 ACCEPT(102) 信令回给主叫。旧流程
+            # 「先 accept、再等 107、再用独立 /answer 接口发」主叫收不到，
+            # 于是它永远不建 ICE 检查清单、从不探测 BOT。
+            answer = None
+            if self.pending_offer:
+                self.bridge.set_remote_sdp(
+                    str(self.pending_offer.get("sdp") or ""))
+                answer = await self.bridge.apply_remote_sdp(is_caller=False)
+            accept_answer = ({"type": "answer", "sdp": answer} if answer else None)
+            if answer:
+                log.info("已从来电消息生成 answer（%d 字节），随 accept 一并提交",
+                         len(answer))
+
+            # accept 走 HTTP，偶发网络抖动会抛 CancelledError——重试兜底。
+            for attempt in range(3):
+                try:
+                    await session.accept(accept_answer)
+                    break
+                except asyncio.CancelledError:
+                    if attempt == 2:
+                        raise
+                    log.warning("accept 请求被取消（第 %d 次），1s 后重试",
+                                attempt + 1)
+                    await asyncio.sleep(1)
             self._answered_at = time.time()
             self.db.update_call(
                 self.call_id, answered_at=now(), ring_delay_ms=int(delay * 1000))
             self._event("answered", "接通")
             log.info("已接通：%s", self.peer_name)
 
-            if not await self.bridge.wait_connected(20.0):
-                log.warning("WebRTC 连接超时（20s）")
-
-            # 等主叫的 offer（accept 之后才会来）
-            if not await self._wait_remote_sdp(15.0):
-                log.warning("等不到远端 SDP，挂断")
-                await self._hangup("no_sdp")
-                return
-            answer = await self.bridge.apply_remote_sdp(is_caller=False)
-            if answer:
-                await session.send_answer(answer)
-                log.info("answer 已发送（%d 字节）", len(answer))
-
-            # 设备状态：只开麦，不开摄像头
+            # 立刻上报设备（开麦）。原先这段在 wait_connected 之后，要等
+            # 20 秒超时才发出——服务端/对端很可能在等这个信号才开始转发
+            # 候选与媒体，晚发等于整通话干等。
             try:
                 await session.update_device(camera=False, microphone=True,
                                             screen_share=False)
+                log.info("已上报设备状态（麦克风开启）")
             except Exception as exc:
-                log.debug("上报设备状态失败: %s", exc)
+                log.warning("上报设备状态失败: %s", exc)
+
+            if answer is None:
+                # 回退：来电消息里没带 offer，才等主叫的 offer(107)
+                if not await self._wait_remote_sdp(15.0):
+                    log.warning("等不到远端 SDP，挂断")
+                    await self._hangup("no_sdp")
+                    return
+                answer = await self.bridge.apply_remote_sdp(is_caller=False)
+
+            if answer:
+                # 独立 answer 接口也发一份（兼容商业版协议；重复投递无害）
+                await self.bridge.send_answer(answer)
+                # 候选必须在 answer 送达之后补发：早发的话对端还没 setRemote-
+                # Description，会把它们当无主候选直接丢掉。
+                await self.bridge.flush_candidates(answer)
+
+            # 再等 ICE 连接（offer/answer 交换后 candidate 才开始协商）
+            if not await self.bridge.wait_connected(20.0):
+                log.warning("WebRTC 连接超时（20s）")
 
             # 视频通话：用"摄像头坏了"挡回去
             if self.mode == "video":

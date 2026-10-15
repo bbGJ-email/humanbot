@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import re
 import time
 from fractions import Fraction
 from typing import Any, Callable, Dict, List, Optional
@@ -40,6 +42,108 @@ SAMPLES_PER_FRAME = SAMPLE_RATE * FRAME_MS // 1000      # 320
 
 # 拉不到官方配置时的兜底
 _FALLBACK_ICE = [{"urls": "stun:stun.l.google.com:19302"}]
+
+# ---------------------------------------------------------------------------
+# 公网 candidate 注入
+#
+# 谜团：双方 candidate 齐全（含 TURN relay），ICE 检查却全部失败。
+# 排查结论：云安全组只阻断了 UDP 3478（STUN/TURN 控制端口），其余 UDP
+# 端口畅通（NTP 123 实测通）。而浏览器的 NAT 对「探测 BOT relay」的源
+# 端口映射与 srflx 端口不一致（symmetric NAT），TURN 的 channel bind
+# 永远盖不住它，双向探测互相丢失。
+#
+# 解法：云服务器 EIP 是 1:1 全端口 NAT（公网任意端口 → 内网同端口）。
+# 把 host candidate 复制一份换成公网 IP 注入 answer，浏览器即可直连
+# BOT 的 UDP 端口，完全绕开 STUN/TURN。
+# ---------------------------------------------------------------------------
+
+_PUB_IP_CACHE: Optional[str] = None
+_HOST_CAND_RE = re.compile(
+    r"a=candidate:(\S+) 1 udp (\d+) (\d+\.\d+\.\d+\.\d+) (\d+) typ host")
+
+
+def _public_ip() -> Optional[str]:
+    """本机公网出口 IP（缓存一次；HTTP 查询，多服务兜底）。"""
+    global _PUB_IP_CACHE
+    if _PUB_IP_CACHE is not None:
+        return _PUB_IP_CACHE or None
+    ip = ""
+    if os.environ.get("HUMANBOT_SKIP_IP", "") != "1":
+        try:
+            import requests
+            for url in ("https://api.ipify.org", "https://ifconfig.me/ip",
+                        "https://api.myip.com"):
+                try:
+                    r = requests.get(url, timeout=4)
+                    txt = (r.text or "").strip() if r.status_code == 200 else ""
+                    if re.match(r"^\d+\.\d+\.\d+\.\d+$", txt):
+                        ip = txt
+                        break
+                except Exception:
+                    continue
+        except Exception:
+            ip = ""
+    _PUB_IP_CACHE = ip
+    return ip or None
+
+
+def _with_public_candidates(sdp: str) -> str:
+    """给 SDP 里「云内网主网卡(10.x)」的 host candidate 追加公网映射版本。"""
+    pub = _public_ip()
+    if not pub or not sdp:
+        return sdp
+    out: List[str] = []
+    added = 0
+    for line in sdp.splitlines():
+        out.append(line)
+        m = _HOST_CAND_RE.match(line.strip())
+        if m and m.group(3).startswith("10.") and m.group(3) != pub:
+            # EIP 1:1 NAT：公网同端口直达内网。srflx 语义（raddr 指向内网），
+            # priority 略低于原 host，让直连排在 relay 前面。
+            out.append(
+                "a=candidate:%spub 1 udp %d %s %s typ srflx raddr %s rport %s "
+                "generation 0" % (m.group(1), max(1, int(m.group(2)) - 1),
+                                  pub, m.group(4), m.group(3), m.group(4)))
+            added += 1
+    if added:
+        log.info("已注入 %d 条公网 candidate（%s，浏览器可直连）", added, pub)
+    return "\r\n".join(out) + "\r\n"
+
+
+def _relay_only(sdp: str) -> str:
+    """只保留 TURN relay candidate，剔除内网 host 与（不可达的）srflx。
+
+    这台服务器的入站 UDP 被云安全组【全端口阻断】（外部发 UDP 到任意端口
+    都收不到），出站 UDP 也只剩 DNS/NTP 等少数端口，STUN/TURN 的 3478 出不去。
+    于是：
+      - 内网 host candidate（10.x / docker 172.x）公网对端根本连不到
+      - srflx 要么拿不到、要么是伪造的，同样连不到
+
+    把它们留在 answer 里只会稀释对端的 ICE 检查、把对端引向死路。
+    跨机对照实测：answer 只给 relay → 1 秒连通；给全量 → 180 个配对全失败。
+
+    若整份 SDP 里没有任何 relay，则原样返回（没有 TURN 的环境不能自断退路）。
+    """
+    if not sdp:
+        return sdp
+    lines = sdp.splitlines()
+    if not any(l.startswith("a=candidate:") and " typ relay" in l for l in lines):
+        return sdp
+    keep = []
+    for l in lines:
+        if l.startswith("a=candidate:") and " typ relay" not in l:
+            continue
+        # c= 行在 WebRTC 里必须是 0.0.0.0/::（连接地址一律由 ICE 候选决定）。
+        # aiortc 会填真实网卡地址（如内网 10.x.x.x），部分客户端会把它当成
+        # 「默认候选」去连内网地址，反而忽略了 relay 候选。
+        if l.startswith("c=IN IP4 ") and not l.strip().endswith("0.0.0.0"):
+            l = "c=IN IP4 0.0.0.0"
+        elif l.startswith("c=IN IP6 ") and not l.strip().endswith("::"):
+            l = "c=IN IP6 ::"
+        keep.append(l)
+    log.info("answer 收敛为 relay-only（剔除 %d 条不可达 candidate）",
+             len(lines) - len(keep))
+    return "\r\n".join(keep) + "\r\n"
 
 
 def _pcm_to_frame(data: bytes, rate: int = SAMPLE_RATE):
@@ -222,11 +326,22 @@ class RTCBridge:
             norm = []
             for s in servers:
                 if isinstance(s, dict):
-                    if s.get("urls"):
-                        norm.append(s)
+                    urls = s.get("urls")
+                    if urls:
+                        item = dict(s)
+                        # 出站 UDP 3478 被云安全组阻断（DNS 53 通、STUN/TURN
+                        # UDP 不通），只有内网 host candidate，对端连不上。
+                        # TURN 改走 TCP 中继绕过 UDP 限制（实测能拿到 relay）。
+                        if (isinstance(urls, str) and urls.startswith("turn:")
+                                and "transport=" not in urls):
+                            item["urls"] = urls + "?transport=tcp"
+                        norm.append(item)
                 else:
                     urls = getattr(s, "urls", None)
                     if urls:
+                        if (isinstance(urls, str) and urls.startswith("turn:")
+                                and "transport=" not in urls):
+                            urls = urls + "?transport=tcp"
                         norm.append({
                             "urls": urls,
                             "username": getattr(s, "username", None),
@@ -265,6 +380,25 @@ class RTCBridge:
             ))
         self.pc = RTCPeerConnection(RTCConfiguration(iceServers=servers))
 
+        # 打开 aioice 的 DEBUG 日志：ICE 配对/探测的每一步都会记到
+        # logs/ice_debug.log，排查「双方 candidate 齐了却连不上」的关键证据。
+        # 注意：aioice 在 __init__ 里挂了 NullHandler 会吞掉所有日志，须移除。
+        try:
+            import logging as _lg
+            _ice = _lg.getLogger("aioice")
+            for _h in list(_ice.handlers):
+                if isinstance(_h, _lg.NullHandler):
+                    _ice.removeHandler(_h)
+            _ice.setLevel(_lg.DEBUG)
+            if not _ice.handlers:
+                _h = _lg.FileHandler("logs/ice_debug.log")
+                _h.setFormatter(_lg.Formatter(
+                    "%(asctime)s %(levelname)s %(name)s %(message)s"))
+                _ice.addHandler(_h)
+            _ice.propagate = False
+        except Exception:
+            pass
+
         self._out = OutboundAudioTrack()
         self.pc.addTrack(self._out)
 
@@ -278,11 +412,14 @@ class RTCBridge:
         @self.pc.on("icecandidate")
         async def _on_ice(candidate):    # noqa: ANN001
             payload = candidate_to_payload(candidate)
+            if payload:
+                log.info("本地 ICE candidate: %s", payload[:160])
             if payload and self.session is not None:
                 try:
                     await self.session.send_candidate(payload)
+                    log.info("本地 candidate 已通过信令发送")
                 except Exception as exc:
-                    log.debug("发送 candidate 失败: %s", exc)
+                    log.warning("发送 candidate 失败: %s", exc)
 
         @self.pc.on("connectionstatechange")
         async def _on_state():           # noqa: ANN001
@@ -294,6 +431,95 @@ class RTCBridge:
                 self._connected.set()
             elif st in ("failed", "closed"):
                 self._connected.clear()
+
+        # 关键：注册 SDK 会话的信令回调。不注册就收不到对端的 offer/candidate，
+        # 通话会在「等不到远端 SDP」处超时挂断（历史 bug：漏了这两行）。
+        if self.session is not None:
+            self.session.on_remote_sdp(self.on_remote_sdp)
+            self.session.on_remote_candidate(self.add_candidate)
+            log.info("已注册 SDK 信令回调（remote_sdp / remote_candidate）")
+            # 提前注册 SDK 的 rtc 消息处理器。SDK 只在 accept() 内部注册，
+            # 但主叫可能在 accept 之前就发 offer，晚注册会丢 offer。
+            try:
+                self.session._register_rtc_ws_handler()
+                log.info("已提前注册 rtc 消息处理器（防 offer 早于 accept 丢失）")
+            except Exception as exc:
+                log.debug("提前注册 rtc 处理器失败: %s", exc)
+
+        # 双保险：直接监听 SDK ws 的 rtc_message 事件，绕过 session 的私有
+        # 转发链路。session 那套在真实环境里没生效（offer 到连接层却没到桥
+        # 接层），这里自己解析 offer/candidate 兜底。
+        ws = getattr(self.conn.im, "_ws", None)
+        if ws is not None:
+
+            async def _direct_rtc(msg_data: Dict[str, Any],
+                                  is_group: bool = False) -> None:
+                mt = int(msg_data.get("type") or 0)
+                log.info("RTCBridge 直接收到 rtc_message type=%s", mt)
+                content = msg_data.get("content") or ""
+                if mt == 107:      # RTC_OFFER
+                    sdp = content
+                    # 现场取证：保存服务端推来的**完整** content（不只是 SDP）。
+                    # 若 content 里除 sdp 外还带 type/mode 等字段，那 BOT 回
+                    # answer 时也必须带上同样的字段，否则服务端/对端可能拒收。
+                    try:
+                        with open("/tmp/last_offer_raw.json", "w") as f:
+                            f.write(content or "")
+                    except OSError:
+                        pass
+                    keys: List[str] = []
+                    try:
+                        parsed = json.loads(content) if content else {}
+                        if isinstance(parsed, dict):
+                            keys = sorted(parsed.keys())
+                            sdp = parsed.get("sdp") or content
+                    except (ValueError, TypeError, AttributeError):
+                        pass
+                    log.info("offer content：总长 %d，字段 %s，提取 SDP %d 字节",
+                             len(content or ""), keys, len(sdp or ""))
+                    # 现场取证：保存真实 offer 供离线复现调试
+                    try:
+                        with open("/tmp/last_offer.sdp", "w") as f:
+                            f.write(sdp or "")
+                    except OSError:
+                        pass
+                    # 诊断：打印对端 offer 的 candidate 类型分布，确认对端
+                    # 是 trickle 还是非 trickle、有没有公网 candidate。
+                    cand_types = []
+                    for ln in (sdp or "").splitlines():
+                        if "a=candidate" in ln:
+                            cand_types.append(
+                                ln.strip().split(" typ ")[-1].split(" ")[0])
+                    log.info("对端 offer 含 %d 个 candidate: %s",
+                             len(cand_types), cand_types)
+                    self.on_remote_sdp(sdp)
+                elif mt == 109:    # RTC_CANDIDATE
+                    cand = content
+                    cand_keys: List[str] = []
+                    try:
+                        parsed = json.loads(content) if content else {}
+                        if isinstance(parsed, dict):
+                            cand_keys = sorted(parsed.keys())
+                        cand = parsed.get("candidate", content)
+                    except (ValueError, TypeError):
+                        pass
+                    # 只打印第一条：确认服务端约定的候选字段名（BOT 发送时
+                    # 必须用同一套字段，否则对端解析不了）。
+                    if not getattr(self, "_shown_cand", False):
+                        self._shown_cand = True
+                        log.info("对端 candidate 字段 %s，原始内容：%s",
+                                 cand_keys, repr((content or "")[:160]))
+                    # 现场取证：保存对端 candidate 的完整原始 content
+                    try:
+                        with open("/tmp/last_candidates.txt", "a") as f:
+                            f.write(str(content) + "\n")
+                    except OSError:
+                        pass
+                    await self.add_candidate(cand)
+
+            ws.on("rtc_message", _direct_rtc)
+            self._direct_rtc = _direct_rtc   # 保引用，防止被回收
+            log.info("已直接监听 ws rtc_message（双保险）")
 
         log.info("PeerConnection 已建立（peer=%s，ICE %d 个）",
                  peer_id, len(servers))
@@ -311,6 +537,14 @@ class RTCBridge:
         """SDK 通知收到远端 SDP。"""
         self._remote_sdp = sdp
         log.info("收到远端 SDP（%d 字节）", len(sdp or ""))
+
+    def set_remote_sdp(self, sdp: str) -> None:
+        """直接注入远端 SDP。
+
+        来电消息(100/101)的 content 里就带 offer 时，不必再等单独的 107。
+        """
+        self._remote_sdp = sdp or ""
+        log.info("直接采用来电消息里的 offer（%d 字节）", len(self._remote_sdp))
 
     async def apply_remote_sdp(self, is_caller: bool) -> Optional[str]:
         """把远端 SDP 应用到 PC。
@@ -333,7 +567,122 @@ class RTCBridge:
             return None
         answer = await self.pc.createAnswer()
         await self.pc.setLocalDescription(answer)
-        return self.pc.localDescription.sdp
+        # 等待 ICE gathering 完成再返回 answer。出站 UDP 被云安全组阻断，
+        # 只有 TURN(TCP) 的 relay candidate 才能让对端连通，而 relay 分配
+        # 需要几秒；不等待的话 answer 里只有内网 host，对端连不上。
+        await self._wait_ice_gathering(timeout=10.0)
+        # 服务器入站 UDP 全端口被阻断，内网 host / 伪造 srflx 都不可达，
+        # 留着只会把对端的 ICE 检查引向死路。只给 TURN relay（实测 1 秒连通）。
+        answer = self.pc.localDescription.sdp
+        if getattr(getattr(self.settings, "call", None),
+                   "ice_relay_only", True):
+            answer = _relay_only(answer)
+        # 候选必须等 answer 送达后再补发（见 flush_candidates）。之前是在这里
+        # 就发，早于 send_answer——对端此时还没有 remote description，会把这批
+        # 「无主候选」直接丢掉，于是它手里一个我们的地址都没有，自然不探测。
+        return answer
+
+    async def flush_candidates(self, sdp: str = "") -> int:
+        """answer 之后再补发本地候选（aiortc 不触发 icecandidate 事件）。
+
+        首轮之后隔 2 秒重发一轮：对端可能刚 setRemoteDescription、尚未
+        建好 m-line，太早到达的候选仍会被丢。
+        """
+        first = await self._flush_candidates(sdp)
+        if first:
+            await asyncio.sleep(2.0)
+            again = await self._flush_candidates(sdp)
+            log.info("候选补发完成：首轮 %d 条，重发 %d 条", first, again)
+        return first
+
+    async def _send_raw(self, kind: str, payload: Any) -> Any:
+        """绕过 session 封装直连 SDK 底层，好拿到服务端响应做诊断。
+
+        session.send_candidate() 只返回 self，看不出服务端到底收没收。
+        这里直接调 awebrtc_*，失败再退回封装方法。
+        """
+        sess = self.session
+        sdk = getattr(sess, "_sdk", None)
+        inner = getattr(sess, "_session", None)
+        uid = getattr(inner, "user_id", None)
+        if sdk is not None and uid is not None:
+            # 注意 SDK 里候选的方法名是 awebrtc_send_candidate（不是
+            # awebrtc_candidate），写错会静默回退、拿不到服务端响应。
+            name = ("awebrtc_send_candidate" if kind == "candidate"
+                    else "awebrtc_answer")
+            fn = getattr(sdk, name, None)
+            if fn is not None:
+                return await fn(uid, payload)
+        fn = getattr(sess, "send_%s" % kind)
+        return await fn(payload)
+
+    async def _flush_candidates(self, sdp: str = "") -> int:
+        """把本地 SDP 里的 candidate 提取出来，通过信令单独发给对端。"""
+        if not self.pc or not self.session or not sdp:
+            return 0
+        sent = 0
+        mid = "0"        # 跟踪当前 m-line 的 mid（offer 可能有 audio+video 两条）
+        seen = set()
+        for line in sdp.splitlines():
+            line = line.strip()
+            if line.startswith("a=mid:"):
+                mid = line.split(":", 1)[1].strip() or "0"
+            elif line.startswith("a=candidate:"):
+                cand_str = line[2:]          # 去掉 "a="，得 "candidate:..."
+                if (mid, cand_str) in seen:
+                    continue                 # bundle 时 audio/video 共用同一候选
+                seen.add((mid, cand_str))
+                payload = {
+                    "candidate": cand_str,
+                    "sdpMid": mid,
+                    "sdpMLineIndex": int(mid) if mid.isdigit() else 0,
+                }
+                try:
+                    res = await self._send_raw("candidate", payload)
+                    sent += 1
+                    log.info("候选已投递给对端 mid=%s %s → 服务端 %s",
+                             mid, cand_str[:56], res)
+                except Exception as exc:
+                    log.warning("发送 candidate 失败: %s", exc)
+        return sent
+
+    async def send_answer(self, sdp: str) -> None:
+        """以服务端期望的 JSON 对象格式发送 answer。
+
+        SDK 的 send_answer(json_data=纯字符串) 会产生 "v=0..."（JSON 字符串），
+        而对端 offer 到达时 content 是 {"sdp": "..."}（JSON 对象）——格式不对称，
+        对端解析不了 answer 就不会进入 ICE 协商。这里对齐格式。
+        """
+        if self.session is None:
+            return
+        try:
+            # 现场取证：保存 BOT 的 answer 供离线复现
+            try:
+                with open("/tmp/last_answer.sdp", "w") as f:
+                    f.write(sdp or "")
+            except OSError:
+                pass
+            # 关键：对端拿到 answer 后执行 new RTCSessionDescription(answer)，
+            # 这要求 {type, sdp} 两个字段（客户端发的是 RTCSessionDescriptionInit）。
+            # 只给 {sdp} 的话浏览器构造会抛异常 → setRemoteDescription 失败 →
+            # 对端没有 remote description，就不会建 ICE 检查清单，于是它只管发
+            # 自己的候选、从不探测 BOT（「对端零探测」的根因就在这里）。
+            res = await self._send_raw(
+                "answer", {"type": "answer", "sdp": sdp})
+            log.info("answer 已发送（JSON 对象格式，%d 字节）→ 服务端 %s",
+                     len(sdp), res)
+        except Exception as exc:
+            log.warning("发送 answer 失败: %s", exc)
+
+    async def _wait_ice_gathering(self, timeout: float = 10.0) -> None:
+        """等 ICE gathering 完成（拿齐 host/srflx/relay candidate）。"""
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            if self.pc and getattr(self.pc, "iceGatheringState", None) == "complete":
+                return
+            await asyncio.sleep(0.2)
+        log.info("ICE gathering 未在 %.1fs 内完成（当前 %s）",
+                 timeout, getattr(self.pc, "iceGatheringState", "?"))
 
     async def create_offer(self) -> str:
         """主叫：生成 offer SDP。"""
@@ -346,12 +695,13 @@ class RTCBridge:
             return
         cand = payload_to_candidate(raw)
         if cand is None:
-            log.debug("忽略空 candidate")
+            log.warning("忽略空 candidate: %s", str(raw)[:120])
             return
+        log.info("收到对端 candidate 并加入 ICE: %s", str(raw)[:120])
         try:
             await self.pc.addIceCandidate(cand)
         except Exception as exc:
-            log.debug("addIceCandidate 失败: %s", exc)
+            log.warning("addIceCandidate 失败: %s", exc)
 
     # -- 音频 -------------------------------------------------------------
 

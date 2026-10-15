@@ -198,6 +198,20 @@ class BotRuntime:
         只拦"来电"（100 语音 / 101 视频）；offer / answer / candidate 这些
         在通话建立后由 RTCBridge 自行接管，不必在这里管。
         """
+        # 诊断：打印所有 RTC 信令，确认 offer(107)/answer(108)/candidate(109)
+        # 是否到达连接层，以及相对 accept 的时序。
+        if 100 <= msg_type < 120 or 200 <= msg_type < 230:
+            log.info("收到 RTC 信令 type=%s", msg_type)
+        # 协议取证：来电(100/101)、offer(107)、answer(108) 的 content 里到底
+        # 装了什么（开源版把 offer 直接塞在来电消息的 content 里）。
+        if msg_type in (100, 101, 107, 108):
+            try:
+                from ..core.utils import parse_message as _pm2
+                _c = str(_pm2(raw).get("text") or "")
+                log.info("RTC type=%s 的 content：%d 字节 | %s",
+                         msg_type, len(_c), repr(_c[:140]))
+            except Exception:
+                pass
         if msg_type not in (100, 101):
             return
         if not self.settings.call.enabled or self.call_flow is None:
@@ -218,7 +232,25 @@ class BotRuntime:
         BUS.publish("call", {"event": "incoming", "peer_id": peer,
                              "peer_name": name, "mode": mode})
 
-        coro = self.call_flow.run_incoming(peer, name, mode)
+        coro_kw = {}
+        # 协议兼容：来电消息的 content 里通常直接就是 offer（客户端拿它
+        # createAnswer，再把 answer 随 accept 一起回给主叫）。
+        try:
+            import json as _json
+            txt = p.get("text")
+            if not txt and isinstance(raw, dict):
+                txt = raw.get("content")
+            txt = str(txt or "")
+            if txt.lstrip().startswith("{"):
+                obj = _json.loads(txt)
+                if isinstance(obj, dict) and obj.get("sdp"):
+                    coro_kw = {"extra": {"offer": obj}}
+                    log.info("来电消息里带 offer（%d 字节），将随 accept 回 answer",
+                             len(str(obj.get("sdp") or "")))
+        except Exception as exc:
+            log.debug("解析来电 content 失败: %s", exc)
+
+        coro = self.call_flow.run_incoming(peer, name, mode, **coro_kw)
         try:
             asyncio.get_running_loop().create_task(coro)
         except RuntimeError:
@@ -273,7 +305,7 @@ class BotRuntime:
         必须同时包含：
           - IM 账号实际显示的昵称（群里别人 @ 的就是这个）
           - 人设名 / 自称
-        两者不一致时（比如账号叫 Samsara、人设叫沈晚），
+        两者不一致时（比如账号昵称和人设名不同），
         只认其中一个会导致她"被叫了却没反应"。
         """
         out: List[str] = []

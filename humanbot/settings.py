@@ -571,6 +571,10 @@ class CallConfig:
     # BOT 没有摄像头。发静态图一动就露馅，所以统一用"摄像头坏了"挡掉。
     allow_video: bool = False
     video_excuse: str = "我摄像头好像坏了，语音行吗"
+    # 只向对端提供 TURN relay candidate（剔除内网 host / srflx）。
+    # 服务器入站 UDP 被云安全组全端口阻断时，内网地址对公网对端不可达，
+    # 留在 answer 里只会稀释对端的 ICE 检查。有公网直连能力时可关掉。
+    ice_relay_only: bool = True
 
     # ---- 接听策略：关系 + 情绪 + 时段 综合判断 ----
     base_answer_prob: float = 0.92        # 基线接听率（留随机性，永远秒接最假）
