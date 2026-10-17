@@ -264,6 +264,19 @@ class HumanizeConfig:
     group_other_weight: float = 0.05
     group_burst_penalty: float = 0.5
 
+    # ---- 已读不回（允许她看完不接话）----
+    skip_enabled: bool = True
+    skip_base_prob: float = 0.12          # 普通消息的基础跳过概率
+    skip_filler_prob: float = 0.65        # 「嗯/哦/好的/哈哈/在吗」这类
+    skip_repeat_prob: float = 0.5         # 和上一条几乎重复
+    skip_max_streak: int = 2              # 连续不回上限，到数必回
+    skip_annoy_boost: float = 0.25        # 有点烦时加成（annoyance>=30）
+    skip_low_energy_boost: float = 0.1
+    skip_night_boost: float = 0.1
+    skip_quick_reply_boost: float = 0.1   # 距上次回复不足 15 秒
+    skip_group_proactive_boost: float = 0.15
+    skip_cap: float = 0.85                # 单条跳过概率上限
+
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "HumanizeConfig":
         inst = cls()

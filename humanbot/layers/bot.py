@@ -27,6 +27,7 @@ from ..core.media import MediaService
 from ..core.memory import MemoryStore
 from ..core.persona import STAGE_PROMPTS, Persona, load_persona
 from ..core.sleep import (ASLEEP, AWAKE, DROWSY, SleepScheduler, WAKING)
+from ..core.skip import SkipDecider
 from ..core.stickers import StickerService
 from ..core.storage import Database
 from ..core.voice import VoiceService
@@ -147,6 +148,12 @@ class BotRuntime:
                                    self._handle_merged,
                                    interest=self.interest,
                                    group_cfg=self.settings.group)
+
+        # 已读不回：她自己决定这条要不要接话
+        self.skip = SkipDecider(self.settings.humanize)
+        self._skip_streak = {}      # 每个会话连续没回几条
+        self._last_reply_at = {}    # 上次回复时间（判断"刚回过"）
+        self._last_user_text = {}   # 上一条用户消息（判断重复）
 
         # 表情包服务：绑定连接并同步目录
         self.stickers.bind(self.conn)
@@ -330,6 +337,51 @@ class BotRuntime:
     # 合并后的处理
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # 已读不回
+    # ------------------------------------------------------------------
+
+    def _should_skip(self, peer_id: int, chat_type: str, text: str,
+                     msg: InboundMessage, st: Any,
+                     proactive_group: bool) -> bool:
+        """她看完先不接话——真人本来就不是有问必答。
+
+        调用前已经 mark_read 过，所以这里的"不回"就是已读不回。
+        """
+        key = "%s:%s:%s" % (self.bot_id, chat_type, peer_id)
+        streak = int(self._skip_streak.get(key, 0))
+        last_at = float(self._last_reply_at.get(key, 0.0))
+        since = (time.time() - last_at) if last_at else 999.0
+
+        d = self.skip.decide(
+            text=text,
+            is_text=(msg.msg_type == MSG_TYPE_TEXT),
+            at_me=bool(getattr(msg, "at_me", False)),
+            stage=getattr(st, "relation", "stranger"),
+            annoyance=int(getattr(st, "annoyance", 0) or 0),
+            energy=float(getattr(st.emotion, "energy", 0.6) or 0.6),
+            hour=time.localtime().tm_hour,
+            is_group=msg.is_group,
+            proactive=proactive_group,
+            streak=streak,
+            since_last_reply=since,
+            last_user_text=self._last_user_text.get(key, ""),
+        )
+
+        self._last_user_text[key] = text
+        if not d.skip:
+            self._skip_streak[key] = 0
+            return False
+
+        self._skip_streak[key] = streak + 1
+        log.info("已读不回（%s，概率 %.0f%%）：%s",
+                 d.reason, d.prob * 100, (text or "")[:30])
+        BUS.publish("skip", {"bot_id": self.bot_id, "peer_id": peer_id,
+                             "chat_type": chat_type, "reason": d.reason,
+                             "prob": round(d.prob, 2),
+                             "text": (text or "")[:60]})
+        return True
+
     def _handle_merged(self, msgs: List[InboundMessage], merged_text: str,
                        bucket: Any = None) -> None:
         """防抖窗口结束后，在后台线程处理。"""
@@ -400,6 +452,11 @@ class BotRuntime:
 
             # --- 已读 ---
             self.conn.mark_read(peer_id, msg.is_group)
+
+            # --- 已读不回：不必每条都接话 ---
+            if self._should_skip(peer_id, chat_type, merged_text, msg,
+                                 st, proactive_group):
+                return
 
             # --- 阅读延迟 ---
             time.sleep(self.output.read_delay())
@@ -620,6 +677,8 @@ class BotRuntime:
         """
         if not self.conn:
             return 0
+        # 记下"刚回过"：刚回完不该马上又接话，这条供已读不回判断
+        self._last_reply_at["%s:%s:%s" % (self.bot_id, chat_type, peer_id)] = time.time()
         if not self.scheduler.daily_limit_ok(self.bot_id):
             return 0
 
