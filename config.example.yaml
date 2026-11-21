@@ -89,6 +89,10 @@ humanize:
   group_interest_weight: 0.25
   group_other_weight: 0.05
   group_burst_penalty: 0.5
+  # 消息转发：AI 觉得值得分享时，把收到的消息原样转给别的好友
+  forward_enabled: true
+  forward_max_msgs: 3           # 单次最多转发几条
+  forward_min_interval: 1800    # 两次转发的最小间隔（秒）
 group:
   enabled: true
   interest_max_weight: 0.72

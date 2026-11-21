@@ -79,6 +79,7 @@ class BotRuntime:
         self._started = False
         self._last_sent: float = 0.0
         self._wake_flush_running = False
+        self._last_forward_at: Dict[str, float] = {}
 
     # ------------------------------------------------------------------
     # 启动
@@ -482,12 +483,19 @@ class BotRuntime:
             if not reply:
                 return
 
+            # --- 转发指令：要在反AI流水线之前摘出来，别被改写弄坏 ---
+            reply, fwd_friend = self._extract_forward(reply)
+
             # --- 反 AI 检测与修复 ---
             reply = self._antiai_pipeline(reply, merged_text, st)
 
             # --- 发送 ---
             self._send_planned(peer_id, reply, chat_type, st, mood=mood,
                                user_text=merged_text)
+
+            # --- 转发：像真人一样，先说完话再"顺手"转出去 ---
+            if fwd_friend is not None:
+                self._do_forward(fwd_friend, msgs)
 
             # --- 后处理 ---
             self._post_turn(st, merged_text, reply, mood, peer_id, chat_type,
@@ -576,6 +584,16 @@ class BotRuntime:
         segs.append("")
         segs.append(self.persona.anti_ai_prompt())
 
+        # 转发能力：只在内容真的值得分享时用，写法要在回复最前面单独一行
+        if self.settings.humanize.forward_enabled:
+            segs.append("")
+            segs.append("【转发】如果你觉得她刚发的东西很有意思、想分享给别的朋友，"
+                        "可以在回复的最前面单独加一行 [转发:好友昵称]，"
+                        "比如：[转发:林小雨]。系统会把对方刚才发的消息原样转给那位好友，"
+                        "你写的其余文字会照常回给对方（可以说一句\"我转给我朋友看看\"）。"
+                        "好友昵称必须写准确，记不清就别转；也别频繁转，"
+                        "一晚上转一次都嫌多，真的觉得好笑或值得一说才转。")
+
         segs.append("")
         segs.append("【任务】")
         segs.append(f'对方刚说："{user_text}"')
@@ -607,6 +625,111 @@ class BotRuntime:
             BUS.publish("alert", {"level": "error", "message": f"生成失败: {exc}"})
             return ""
         return (out or "").strip().strip('"').strip("'").strip()
+
+    # ------------------------------------------------------------------
+    # 转发
+    # ------------------------------------------------------------------
+
+    _FORWARD_RE = re.compile(
+        r"^[ \t]*[【\[]\s*转发(?:给)?[:：]\s*(.+?)[】\]][ \t]*$", re.M)
+
+    def _extract_forward(self, reply: str) -> Tuple[str, Optional[Any]]:
+        """从回复里摘出转发指令。
+
+        指令格式：回复最前面单独一行 [转发:好友昵称]（【】/：均兼容）。
+        返回 (去掉指令的回复, 目标好友对象)；任何一步解析不出来就
+        当作普通文本放行，绝不能因为指令写错吞掉整条回复。
+        """
+        if not self.settings.humanize.forward_enabled:
+            return reply, None
+        m = self._FORWARD_RE.search(reply or "")
+        if not m:
+            return reply, None
+        name = m.group(1).strip().strip('"').strip()
+        rest = (reply[:m.start()] + reply[m.end():]).strip()
+        if not name or not rest:
+            return reply, None    # 指令占了整条回复 → 别当指令处理
+
+        friend = self._resolve_friend(name)
+        if friend is None:
+            log.info("转发指令的目标好友不存在：%s（忽略指令）", name)
+            return rest, None
+
+        # 频率限制：转太勤不像人，直接把指令丢了
+        last = self._last_forward_at.get(str(self.bot_id), 0)
+        if time.time() - last < self.settings.humanize.forward_min_interval:
+            log.info("距上次转发太近，忽略转发指令")
+            return rest, None
+        return rest, friend
+
+    def _resolve_friend(self, name: str) -> Optional[Any]:
+        """按昵称/备注找好友。精确 → 前缀 → 包含，三级兜底。"""
+        if not self.conn or not name:
+            return None
+        try:
+            friends = self.conn.im.get_friends() or []
+        except Exception as exc:
+            log.warning("取好友列表失败: %s", exc)
+            return None
+        low = name.lower()
+
+        def names_of(f: Any) -> List[str]:
+            return [x for x in (getattr(f, "nick_name", ""),
+                                getattr(f, "show_nick_name", ""),
+                                getattr(f, "remark_nick_name", "")) if x]
+
+        for f in friends:
+            if any(n.lower() == low for n in names_of(f)):
+                return f
+        for f in friends:
+            if any(n.lower().startswith(low) for n in names_of(f)):
+                return f
+        for f in friends:
+            if any(low in n.lower() for n in names_of(f)):
+                return f
+        return None
+
+    def _do_forward(self, friend: Any, msgs: List[InboundMessage]) -> None:
+        """把收到的消息原样转给目标好友（延迟一下，像随手转的）。"""
+        if not self.conn or friend is None:
+            return
+        batch = [m for m in msgs if m.text][-self.settings.humanize.forward_max_msgs:]
+        if not batch:
+            return
+        time.sleep(random.uniform(1.0, 2.5))
+
+        ok = 0
+        for m in batch:
+            try:
+                if self.conn.forward_message(m, friend.id):
+                    ok += 1
+                    if len(batch) > 1:
+                        time.sleep(random.uniform(0.6, 1.4))
+            except Exception as exc:
+                log.warning("转发第 %s 条失败: %s", m.msg_id or "?", exc)
+
+        if not ok:
+            return
+        self._last_forward_at[str(self.bot_id)] = time.time()
+
+        # 给两个会话都留个痕迹，之后聊天才接得上"我刚才转给你看的那张图"
+        desc = " / ".join(truncate(m.text, 40) for m in batch)
+        try:
+            conv_id = self.db.ensure_conversation(self.bot_id, friend.id, "private")
+            self.db.insert_message(self.bot_id, conv_id, "bot",
+                                   f"[转发] {desc}", ts=now())
+            self.db.execute(
+                "UPDATE conversations SET last_ts=? WHERE id=?", (now(), conv_id))
+        except Exception:
+            conv_id = 0
+        self.memory.push_working(self.bot_id, friend.id, "private", "bot",
+                                 f"[转发] {desc}")
+        BUS.publish("forward", {
+            "bot_id": self.bot_id, "target_id": friend.id,
+            "target_name": getattr(friend, "nick_name", ""),
+            "count": ok, "preview": truncate(desc, 80),
+        })
+        log.info("已把 %d 条消息转给 %s", ok, getattr(friend, "nick_name", friend.id))
 
     # ------------------------------------------------------------------
     # 反 AI 流水线

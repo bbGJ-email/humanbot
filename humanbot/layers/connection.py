@@ -412,6 +412,27 @@ class BoxIMConnection:
             log.error("发送失败: %s", exc)
             return None
 
+    def forward_message(self, msg: InboundMessage, target_id: int,
+                        target_is_group: bool = False) -> bool:
+        """把一条收到的消息原样转发到目标会话。
+
+        盒子IM 没有 forward 接口，客户端"单条转发"的实际行为就是：
+        按原 msg_type + 原 content 重发一条新消息。表情/图片/视频的
+        content 里带的是 URL，重发后对方照样能看。
+        """
+        if self.im is None or msg is None or not msg.text:
+            return False
+        try:
+            if target_is_group:
+                self.im.send_group_raw(target_id, msg.text, msg.msg_type)
+            else:
+                self.im.send_private_raw(target_id, msg.text, msg.msg_type)
+            log.info("已转发 type=%s → %s", msg.msg_type, target_id)
+            return True
+        except Exception as exc:
+            log.error("转发失败: %s", exc)
+            return False
+
     def send_image(self, chat_id: int, path: str, is_group: bool = False) -> bool:
         if self.im is None or not path:
             return False

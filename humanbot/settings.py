@@ -277,6 +277,11 @@ class HumanizeConfig:
     skip_group_proactive_boost: float = 0.15
     skip_cap: float = 0.85                # 单条跳过概率上限
 
+    # ---- 消息转发（AI 觉得值得分享时，把收到的消息原样转给别的好友）----
+    forward_enabled: bool = True
+    forward_max_msgs: int = 3             # 单次最多转发几条
+    forward_min_interval: int = 1800      # 两次转发的最小间隔（秒），防刷屏
+
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "HumanizeConfig":
         inst = cls()
