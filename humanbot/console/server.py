@@ -104,6 +104,7 @@ class PreviewReq(BaseModel):
     message: str
     apply_emotion: bool = True
     apply_antiai: bool = True
+    bot_id: int = 0
 
 
 class ProviderReq(BaseModel):
@@ -142,6 +143,7 @@ class ConfigReq(BaseModel):
 class InjectEmotionReq(BaseModel):
     peer_id: int
     chat_type: str = "private"
+    bot_id: int = 0
     pleasure: Optional[float] = None
     energy: Optional[float] = None
     intimacy: Optional[float] = None
@@ -159,18 +161,21 @@ class MemoryAddReq(BaseModel):
     kind: str = "episode"
     text: str
     importance: float = 0.7
+    bot_id: int = 0
 
 
 class SendMsgReq(BaseModel):
     peer_id: int
     chat_type: str = "private"
     text: str
+    bot_id: int = 0
 
 
 class SendImageReq(BaseModel):
     peer_id: int
     chat_type: str = "private"
     prompt: str
+    bot_id: int = 0
 
 
 class SandboxReq(BaseModel):
@@ -368,7 +373,8 @@ def build_app(settings: Settings, db: Database, manager: Any,
                   ) -> Dict[str, Any]:
         if manager is None:
             raise HTTPException(400, "运行时未启动")
-        ok = manager.manual_send(req.peer_id, req.text, req.chat_type)
+        ok = manager.manual_send(req.peer_id, req.text, req.chat_type,
+                                bot_id=req.bot_id)
         STATE.db.log_audit("manual_send", f"{req.chat_type}:{req.peer_id}")
         return {"ok": ok}
 
@@ -377,7 +383,8 @@ def build_app(settings: Settings, db: Database, manager: Any,
                         ) -> Dict[str, Any]:
         if manager is None:
             raise HTTPException(400, "运行时未启动")
-        path = manager.manual_send_image(req.peer_id, req.prompt, req.chat_type)
+        path = manager.manual_send_image(req.peer_id, req.prompt,
+                                            req.chat_type, bot_id=req.bot_id)
         return {"ok": bool(path), "path": path}
 
     @app.post("/api/conversations/{conv_id}/pause")
@@ -463,7 +470,8 @@ def build_app(settings: Settings, db: Database, manager: Any,
                         ) -> Dict[str, Any]:
         if manager is None or not manager.bots():
             raise HTTPException(400, "BOT 未启动，无法预览")
-        return manager.preview(req.message, req.apply_emotion, req.apply_antiai)
+        return manager.preview(req.message, req.apply_emotion,
+                              req.apply_antiai, bot_id=req.bot_id)
 
     @app.get("/api/persona/meta")
     def persona_meta(user: str = Depends(current_user)) -> Dict[str, Any]:
@@ -631,10 +639,11 @@ def build_app(settings: Settings, db: Database, manager: Any,
 
     @app.get("/api/emotion/{peer_id}")
     def get_emotion(peer_id: int, chat_type: str = "private",
+                    bot_id: int = 0,
                     user: str = Depends(current_user)) -> Dict[str, Any]:
-        if manager is None or not manager.bots():
+        b = _pick_bot(bot_id)
+        if b is None:
             return {"emotion": {}, "annoyance": 0}
-        b = manager.bots()[0]
         st = b.emotion.state(b.bot_id, peer_id, chat_type)
         from ..core.emotion import mood_of
         import datetime as _dt
@@ -651,9 +660,9 @@ def build_app(settings: Settings, db: Database, manager: Any,
     @app.post("/api/emotion/inject")
     def inject_emotion(req: InjectEmotionReq, user: str = Depends(current_user)
                        ) -> Dict[str, Any]:
-        if manager is None or not manager.bots():
+        b = _pick_bot(req.bot_id)
+        if b is None:
             raise HTTPException(400, "BOT 未启动")
-        b = manager.bots()[0]
         st = b.emotion.state(b.bot_id, req.peer_id, req.chat_type)
         for field in ("pleasure", "energy", "intimacy", "stress"):
             v = getattr(req, field)
@@ -670,20 +679,20 @@ def build_app(settings: Settings, db: Database, manager: Any,
 
     @app.get("/api/memories")
     def list_memories(peer_id: int, chat_type: str = "private", kind: str = "",
-                      include_deleted: bool = False,
+                      include_deleted: bool = False, bot_id: int = 0,
                       user: str = Depends(current_user)) -> Dict[str, Any]:
-        if manager is None or not manager.bots():
+        b = _pick_bot(bot_id)
+        if b is None:
             return {"memories": []}
-        b = manager.bots()[0]
         return {"memories": manager.memory.list_memories(
             b.bot_id, peer_id, chat_type, kind, include_deleted)}
 
     @app.post("/api/memories")
     def add_memory(req: MemoryAddReq, user: str = Depends(current_user)
                    ) -> Dict[str, Any]:
-        if manager is None or not manager.bots():
+        b = _pick_bot(req.bot_id)
+        if b is None:
             raise HTTPException(400, "BOT 未启动")
-        b = manager.bots()[0]
         mid = manager.memory.add_manual(b.bot_id, req.peer_id, req.chat_type,
                                         req.kind, req.text, req.importance)
         STATE.db.log_audit("memory_add", f"id={mid}")
@@ -714,10 +723,11 @@ def build_app(settings: Settings, db: Database, manager: Any,
 
     @app.post("/api/memories/search")
     def search_memories(peer_id: int, query: str, chat_type: str = "private",
+                        bot_id: int = 0,
                         user: str = Depends(current_user)) -> Dict[str, Any]:
-        if manager is None or not manager.bots():
+        b = _pick_bot(bot_id)
+        if b is None:
             return {"results": []}
-        b = manager.bots()[0]
         return {"results": manager.memory.search(b.bot_id, peer_id, chat_type, query)}
 
     # ---------- 媒体 ----------
@@ -772,6 +782,14 @@ def build_app(settings: Settings, db: Database, manager: Any,
         row = STATE.db.query_one("SELECT bot_id FROM bots ORDER BY bot_id LIMIT 1")
         return int(row["bot_id"]) if row else 0
 
+    def _pick_bot(bot_id: int = 0) -> Any:
+        """按 id 选运行中的 BOT；0 或找不到退回第一个（多实例管理用）。"""
+        bots = manager.bots() if manager else []
+        for b in bots:
+            if int(b.bot_id) == int(bot_id):
+                return b
+        return bots[0] if bots else None
+
     @app.get("/api/stickers/albums")
     def sticker_albums(user: str = Depends(current_user)) -> Dict[str, Any]:
         svc = _sticker_svc()
@@ -817,9 +835,10 @@ def build_app(settings: Settings, db: Database, manager: Any,
         return {"ok": True, "count": n, "total": svc.count()}
 
     @app.get("/api/stickers/usage")
-    def sticker_usage(limit: int = 50, user: str = Depends(current_user)
+    def sticker_usage(limit: int = 50, bot_id: int = 0,
+                      user: str = Depends(current_user)
                       ) -> Dict[str, Any]:
-        bid = _first_bot_id()
+        bid = bot_id or _first_bot_id()
         if not bid:
             return {"items": []}
         rows = STATE.db.query(
@@ -832,13 +851,14 @@ def build_app(settings: Settings, db: Database, manager: Any,
     @app.get("/api/stickers/pick")
     def sticker_pick(mood: str = "", user_text: str = "",
                      annoyance: int = 0, label: str = "", limit: int = 8,
+                     bot_id: int = 0,
                      user: str = Depends(current_user)) -> Dict[str, Any]:
         """预览选图结果（不发出去）。"""
         svc = _sticker_svc()
         if label:
             return {"items": svc.list_by_label(label, limit)}
         brain = manager.brain if (manager is not None) else None
-        got = svc.pick(bot_id=_first_bot_id() or 0, chat_id=0, mood=mood,
+        got = svc.pick(bot_id=bot_id or _first_bot_id() or 0, chat_id=0, mood=mood,
                        annoyance=annoyance, user_text=user_text, brain=brain)
         return {"items": [got] if got else [],
                 "labels": svc.wanted_labels(mood, annoyance, user_text)}
@@ -846,9 +866,10 @@ def build_app(settings: Settings, db: Database, manager: Any,
     # ---------- 群聊参与 ----------
 
     @app.get("/api/groups")
-    def group_list(user: str = Depends(current_user)) -> Dict[str, Any]:
+    def group_list(bot_id: int = 0,
+                   user: str = Depends(current_user)) -> Dict[str, Any]:
         """列出所有出现过的群，带当前热度与参与状态。"""
-        bid = _first_bot_id()
+        bid = bot_id or _first_bot_id()
         if not bid:
             return {"groups": []}
         im = _interest_model()
@@ -874,9 +895,10 @@ def build_app(settings: Settings, db: Database, manager: Any,
         return {"groups": out, "interests": im.interest_topics(bid)}
 
     @app.get("/api/group/{group_id}")
-    def group_detail(group_id: int, user: str = Depends(current_user)
+    def group_detail(group_id: int, bot_id: int = 0,
+                     user: str = Depends(current_user)
                      ) -> Dict[str, Any]:
-        bid = _first_bot_id()
+        bid = bot_id or _first_bot_id()
         im = _interest_model()
         snap = im.snapshot(bid, group_id) if bid else {}
         row = STATE.db.query_one(
@@ -894,13 +916,13 @@ def build_app(settings: Settings, db: Database, manager: Any,
         return {"data": snap}
 
     @app.post("/api/group/{group_id}/interest")
-    def group_set_interest(group_id: int, keywords: List[str],
+    def group_set_interest(group_id: int, keywords: List[str], bot_id: int = 0,
                            user: str = Depends(current_user)) -> Dict[str, Any]:
         STATE.db.execute(
             "INSERT INTO group_rules(group_id,bot_id,interest_keywords) "
             "VALUES(?,?,?) ON CONFLICT(group_id) DO UPDATE SET "
             "interest_keywords=excluded.interest_keywords",
-            (group_id, _first_bot_id(),
+            (group_id, bot_id or _first_bot_id(),
              json.dumps(keywords, ensure_ascii=False)))
         STATE.db.log_audit("group_interest", f"g={group_id}")
         return {"ok": True}
@@ -921,7 +943,8 @@ def build_app(settings: Settings, db: Database, manager: Any,
                      ) -> Dict[str, Any]:
         if manager is None:
             raise HTTPException(400, "未启动")
-        return manager.sandbox(req.message, req.rounds)
+        return manager.sandbox(req.message, req.rounds,
+                               bot_id=req.bot_id)
 
     @app.get("/api/sandbox/antiai")
     def sandbox_antiai(limit: int = 200, user: str = Depends(current_user)

@@ -39,8 +39,11 @@ class BoxIMConfig:
     # 默认关：改名会动到你的真实账号，而且 IM 昵称和人设名不一致并不影响使用
     #（别名列表会同时认两个名字）。想让账号看起来也叫"沈晚"再打开。
     sync_nickname: bool = False
+    # 该账号专属的人设文件路径（多账号各自性格时用）；空 = 用全局 persona_file
+    persona_file: str = ""
     # 多账号：要同时跑几个 BOT 时填这里，每项 {username, password}
-    # 留空则只用上面的 username/password 单账号。
+    # 可选 persona 字段指定该账号的人设文件（相对根目录或绝对路径），
+    # 不填则用全局 persona_file。留空列表则只用上面的 username/password 单账号。
     accounts: List[Dict[str, str]] = field(default_factory=list)
 
     def account_list(self) -> List[Dict[str, str]]:
@@ -57,7 +60,11 @@ class BoxIMConfig:
             u = str(a.get("username") or "").strip()
             p = str(a.get("password") or "")
             if u and p:
-                out.append({"username": u, "password": p})
+                item = {"username": u, "password": p}
+                pf = str(a.get("persona") or "").strip()
+                if pf:
+                    item["persona"] = pf
+                out.append(item)
         if not out and self.username and self.password:
             out.append({"username": self.username, "password": self.password})
         return out
@@ -72,6 +79,7 @@ class BoxIMConfig:
             ssl_verify=self.ssl_verify,
             disconnect_on_sleep=self.disconnect_on_sleep,
             sync_nickname=self.sync_nickname,
+            persona_file=acct.get("persona", ""),
             accounts=[],
         )
 
@@ -82,8 +90,11 @@ class BoxIMConfig:
         if isinstance(raw_accounts, list):
             for a in raw_accounts:
                 if isinstance(a, dict) and a.get("username"):
-                    accounts.append({"username": str(a["username"]),
-                                     "password": str(a.get("password", ""))})
+                    item = {"username": str(a["username"]),
+                            "password": str(a.get("password", ""))}
+                    if a.get("persona"):
+                        item["persona"] = str(a["persona"])
+                    accounts.append(item)
         return cls(
             username=str(d.get("username") or _env("BOXIM_USERNAME", "")),
             password=str(d.get("password") or _env("BOXIM_PASSWORD", "")),
@@ -153,6 +164,7 @@ TASK_INTENT = "intent_rewrite"
 TASK_MEMORY = "memory_extract"
 TASK_EMOTION = "emotion_update"
 TASK_ANTIAI = "anti_ai_fix"
+TASK_TOOL = "tool_decide"
 TASK_VISION = "vision"
 TASK_IMAGE_PROMPT = "image_prompt"
 TASK_EMBEDDING = "embedding"
@@ -164,6 +176,7 @@ ALL_TASKS = [
     TASK_MEMORY,
     TASK_EMOTION,
     TASK_ANTIAI,
+    TASK_TOOL,
     TASK_VISION,
     TASK_IMAGE_PROMPT,
     TASK_EMBEDDING,
@@ -176,6 +189,7 @@ TASK_LABELS = {
     TASK_MEMORY: "记忆抽取",
     TASK_EMOTION: "情绪增量计算",
     TASK_ANTIAI: "反AI改写",
+    TASK_TOOL: "工具调度决策",
     TASK_VISION: "图片理解",
     TASK_IMAGE_PROMPT: "图生文提示词",
     TASK_EMBEDDING: "记忆向量嵌入",
@@ -228,6 +242,27 @@ class ModelConfig:
             if cand.enabled:
                 return cand
         return None
+
+
+@dataclass
+class ToolsConfig:
+    """Agent 工具（免费公开 API）。决策 LLM 可在控制台「模型」页改路由。"""
+
+    enabled: bool = True
+    tool_timeout: float = 12.0        # 单个工具的兜底超时（秒）
+    daily_limit: int = 40             # 每个 BOT 每天最多调用次数，防刷
+    decision_max_tokens: int = 100    # 决策调用的 max_tokens
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "ToolsConfig":
+        inst = cls()
+        for k, v in (d or {}).items():
+            if hasattr(inst, k):
+                try:
+                    setattr(inst, k, type(getattr(inst, k))(v))
+                except (TypeError, ValueError):
+                    pass
+        return inst
 
 
 @dataclass
@@ -655,6 +690,7 @@ class Settings:
     group: GroupConfig = field(default_factory=GroupConfig)
     voice: VoiceConfig = field(default_factory=VoiceConfig)
     call: CallConfig = field(default_factory=CallConfig)
+    tools: ToolsConfig = field(default_factory=ToolsConfig)
     console: ConsoleConfig = field(default_factory=ConsoleConfig)
     db_path: str = str(DATA_DIR / "humanbot.db")
     log_level: str = "INFO"
@@ -682,6 +718,7 @@ class Settings:
             console=ConsoleConfig.from_dict(raw.get("console", {})),
             voice=VoiceConfig.from_dict(raw.get("voice", {})),
             call=CallConfig.from_dict(raw.get("call", {})),
+            tools=ToolsConfig.from_dict(raw.get("tools", {})),
             db_path=raw.get("db_path", str(DATA_DIR / "humanbot.db")),
             log_level=str(raw.get("log_level", "INFO")).upper(),
             persona_file=raw.get("persona_file", str(ROOT / "persona.yaml")),
@@ -722,6 +759,7 @@ class Settings:
         raw["group"] = self.group.__dict__
         raw["voice"] = self.voice.__dict__
         raw["call"] = self.call.__dict__
+        raw["tools"] = self.tools.__dict__
         raw["console"] = {
             "enabled": self.console.enabled,
             "host": self.console.host,

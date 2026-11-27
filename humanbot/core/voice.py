@@ -360,6 +360,9 @@ class VoiceService:
         if persona is not None:
             self.bind_persona(persona)
         phrases = self._all_fixed_phrases()
+        # 纯标点/无朗读内容的短语（如「……」）edge-tts 会返回空音频报错，跳过
+        phrases = [p for p in phrases
+                   if re.search(r"[\u4e00-\u9fffA-Za-z0-9]", p)]
         if not phrases:
             return 0
 

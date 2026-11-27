@@ -221,6 +221,8 @@ code{background:var(--bg3);padding:1px 5px;border-radius:4px;font-size:12px}
   <div class="brand"><span class="dot"></span><span>HumanBot</span></div>
   <div class="top">
     <span class="pill" id="tb-bot">BOT --</span>
+    <select id="bot-switch" class="btn ghost sm" title="切换管理的 BOT 实例"
+            style="max-width:180px"></select>
     <span class="pill" id="tb-state">--</span>
     <span class="pill" id="tb-cost">$0.0000</span>
     <span class="pill" id="tb-msg">0 / 0</span>
@@ -1058,6 +1060,11 @@ function connectWS() {
     if (TOKEN) setTimeout(() => { if (TOKEN) connectWS(); }, 3500);
   };
 }
+let CUR_BOT = 0;   // 控制台当前管理的 BOT 实例（0 = 第一个）
+function botQS(extra) {
+  return (CUR_BOT ? (extra ? extra + '&' : '?') + 'bot_id=' + CUR_BOT
+                  : (extra || ''));
+}
 let dashTimer = null;
 function dashRefreshSoon() {
   clearTimeout(dashTimer);
@@ -1085,7 +1092,20 @@ function renderLogs() {
 async function refreshDash() {
   try {
     const s = await api('/api/status');
-    const b = (s.bots && s.bots[0]) || null;
+    // 实例切换下拉：只增不重建，避免打断正在选择
+    const sel = $('#bot-switch');
+    if (sel && s.bots && s.bots.length) {
+      const cur = sel.value;
+      sel.innerHTML = s.bots.map(x =>
+        `<option value="${x.bot_id}">${esc(x.nickname || x.name || ('BOT ' + x.bot_id))}${x.connected ? '' : '（离线）'}</option>`).join('');
+      sel.style.display = s.bots.length > 1 ? '' : 'none';
+      if (cur && s.bots.some(x => String(x.bot_id) === cur)) sel.value = cur;
+      else if (!CUR_BOT || !s.bots.some(x => String(x.bot_id) === String(CUR_BOT)))
+        { CUR_BOT = s.bots[0].bot_id; sel.value = String(CUR_BOT); }
+      else sel.value = String(CUR_BOT);
+    }
+    const b = (s.bots || []).find(x => String(x.bot_id) === String(CUR_BOT)) ||
+              (s.bots && s.bots[0]) || null;
     if (b) {
       $('#d-state').textContent = b.sleep_state || b.state || '--';
       $('#d-state-sub').textContent = b.annoy_label || '';
@@ -1139,7 +1159,7 @@ function drawBars(st) {
 
 async function loadEmotionChart() {
   try {
-    const d = await api('/api/emotion/history?hours=24');
+    const d = await api('/api/emotion/history?hours=24' + (CUR_BOT ? '&bot_id=' + CUR_BOT : ''));
     const pts = d.points || [];
     const svg = $('#spark');
     if (!pts.length) { svg.innerHTML = '<text x="300" y="24" fill="#6b7383" font-size="12" text-anchor="middle">暂无数据</text>'; return; }
@@ -1166,7 +1186,7 @@ async function loadEmotionChart() {
 let CONVS = [], CUR_CONV = null;
 async function loadConversations() {
   try {
-    const d = await api('/api/conversations');
+    const d = await api('/api/conversations' + botQS());
     CONVS = d.conversations || [];
     const el = $('#conv-list');
     el.innerHTML = CONVS.map(c => `<div class="chat-item" data-id="${c.id}">
@@ -1207,6 +1227,7 @@ $('#c-send').onclick = async () => {
   if (!t) return;
   try {
     await api('/api/conversations/send', {method:'POST', body:{
+      bot_id: CUR_BOT,
       peer_id: CUR_CONV.peer_id, text: t, chat_type: CUR_CONV.chat_type}});
     $('#c-input').value = '';
     toast('已发送','ok');
@@ -1239,6 +1260,7 @@ $('#c-img').onclick = async () => {
   toast('生成中，请稍候...');
   try {
     const r = await api('/api/conversations/send-image', {method:'POST', body:{
+      bot_id: CUR_BOT,
       peer_id: CUR_CONV.peer_id, prompt: p, chat_type: CUR_CONV.chat_type}});
     toast(r.ok ? '已发送图片' : '生成失败', r.ok ? 'ok' : 'err');
     if (r.ok) setTimeout(() => openConv(CUR_CONV.id), 1400);
@@ -1339,6 +1361,7 @@ $('#pv-go').onclick = async () => {
   $('#pv-out').innerHTML = '<div class="empty">生成中...</div>';
   try {
     const r = await api('/api/persona/preview', {method:'POST', body:{
+      bot_id: CUR_BOT,
       message: msg, apply_emotion: $('#pv-emo').checked, apply_antiai: $('#pv-ai').checked}});
     window.__LAST_PREVIEW = r;
     const raw = r.raw || r.text || r.reply || '';
@@ -1381,7 +1404,7 @@ async function loadEmotion() {
   const c = CONVS.find(x => x.id === convId);
   if (!c) { $('#e-hist').innerHTML = '<tr><td colspan="7" class="empty">请选择会话</td></tr>'; return; }
   try {
-    const d = await api(`/api/emotion/${c.peer_id}?chat_type=${c.chat_type}`);
+    const d = await api(`/api/emotion/${c.peer_id}?chat_type=${c.chat_type}` + botQS('&'));
     const e = d.emotion || {};
     $('#e-ple').textContent = Math.round(e.pleasure ?? 0);
     $('#e-ene').textContent = Math.round(e.energy ?? 0);
@@ -1399,7 +1422,7 @@ async function loadEmotion() {
     $('#s-str').value = e.stress ?? 20;  $('#v-str').textContent = e.stress ?? 20;
     $('#s-ann').value = d.annoyance ?? 0; $('#v-ann').textContent = d.annoyance ?? 0;
 
-    const h = await api(`/api/emotion/history?peer_id=${c.peer_id}&hours=168`);
+    const h = await api(`/api/emotion/history?peer_id=${c.peer_id}&hours=168` + botQS('&'));
     $('#e-hist').innerHTML = (h.points || []).slice(-60).reverse().map(r => `<tr>
       <td class="muted">${fmtTime(r.ts)}</td>
       <td>${Math.round(r.pleasure)}</td><td>${Math.round(r.energy)}</td>
@@ -1416,6 +1439,7 @@ $('#e-apply').onclick = async () => {
   if (!c) return toast('先选择会话','err');
   try {
     await api('/api/emotion/inject', {method:'POST', body:{
+      bot_id: CUR_BOT,
       peer_id: c.peer_id, chat_type: c.chat_type,
       pleasure: Number($('#s-ple').value), energy: Number($('#s-ene').value),
       intimacy: Number($('#s-int').value), stress: Number($('#s-str').value),
@@ -1429,7 +1453,7 @@ $('#e-reset').onclick = async () => {
   if (!c) return toast('先选择会话','err');
   try {
     await api('/api/action', {method:'POST', body:{
-      action:'reset_annoyance', payload:{peer_id: c.peer_id, chat_type: c.chat_type}}});
+      action:'reset_annoyance', payload:{peer_id: c.peer_id, chat_type: c.chat_type, bot_id: CUR_BOT}}});
     toast('不满度已重置','ok'); loadEmotion();
   } catch(e) { toast(e.message,'err'); }
 };
@@ -1460,11 +1484,11 @@ async function loadMemories(query) {
   try {
     let items;
     if (query) {
-      const r = await api(`/api/memories/search?peer_id=${c.peer_id}&chat_type=${c.chat_type}&query=${encodeURIComponent(query)}`,
+      const r = await api(`/api/memories/search?peer_id=${c.peer_id}&chat_type=${c.chat_type}&query=${encodeURIComponent(query)}` + botQS('&'),
         {method:'POST'});
       items = r.results || [];
     } else {
-      const r = await api(`/api/memories?peer_id=${c.peer_id}&chat_type=${c.chat_type}&kind=${$('#m-kind').value}`);
+      const r = await api(`/api/memories?peer_id=${c.peer_id}&chat_type=${c.chat_type}&kind=${$('#m-kind').value}` + botQS('&'));
       items = r.memories || [];
     }
     $('#m-count').textContent = items.length;
@@ -1508,6 +1532,7 @@ $('#m-add').onclick = async () => {
   const kind = (prompt('类型（profile / episodic）：', 'profile') || 'profile').trim();
   try {
     await api('/api/memories', {method:'POST', body:{
+      bot_id: CUR_BOT,
       peer_id: c.peer_id, chat_type: c.chat_type, kind, text, importance: 0.8}});
     toast('已新增','ok'); loadMemories();
   } catch(e) { toast(e.message,'err'); }
@@ -1542,7 +1567,7 @@ async function loadSleep() {
   } catch(e) {}
 }
 async function sleepAction(a) {
-  try { await api('/api/action', {method:'POST', body:{action:a, payload:{}}});
+  try { await api('/api/action', {method:'POST', body:{action:a, payload:{bot_id: CUR_BOT}}});
         toast('已执行：' + a, 'ok'); setTimeout(loadSleep, 1200); }
   catch(e) { toast(e.message,'err'); }
 }
@@ -2190,6 +2215,15 @@ async function refreshAll() {
   loadProviders();
   loadAntiai();
 }
+
+// 实例切换：换 BOT 后重载仪表盘和会话列表
+const _botSel = $('#bot-switch');
+if (_botSel) _botSel.addEventListener('change', async () => {
+  CUR_BOT = parseInt(_botSel.value) || 0;
+  CUR_CONV = null;
+  await refreshDash();
+  await loadConversations();
+});
 
 setInterval(() => { $('#tb-clock').textContent = fmtClock(); }, 1000);
 setInterval(() => {

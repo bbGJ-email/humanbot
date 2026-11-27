@@ -6,7 +6,13 @@ boxim:
   ssl_verify: true
   disconnect_on_sleep: true
   sync_nickname: false
-  accounts: []
+  # 多账号示例：每个 BOT 一个账号，persona 为该账号专属人设文件（可选）
+  # accounts:
+  # - username: account_a
+  #   password: xxx
+  # - username: account_b
+  #   password: xxx
+  #   persona: persona_cute.yaml
 model:
   providers:
   - id: main
@@ -93,6 +99,12 @@ humanize:
   forward_enabled: true
   forward_max_msgs: 3           # 单次最多转发几条
   forward_min_interval: 1800    # 两次转发的最小间隔（秒）
+tools:
+  enabled: true
+  tool_timeout: 12.0        # 单个工具兜底超时（秒）
+  daily_limit: 40           # 每个 BOT 每天最多调用次数
+  decision_max_tokens: 100
+
 group:
   enabled: true
   interest_max_weight: 0.72

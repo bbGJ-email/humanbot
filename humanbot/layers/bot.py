@@ -15,6 +15,7 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..core import antiai
@@ -30,10 +31,11 @@ from ..core.sleep import (ASLEEP, AWAKE, DROWSY, SleepScheduler, WAKING)
 from ..core.skip import SkipDecider
 from ..core.stickers import StickerService
 from ..core.storage import Database
+from ..core.tools import ToolKit
 from ..core.voice import VoiceService
 from ..core.utils import (dice, fmt_clock, human_time, minute_of_day, now,
                           pick, today_str, truncate)
-from ..settings import Settings, TASK_REPLY
+from ..settings import Settings, TASK_REPLY, TASK_TOOL
 from .account import AccountBehavior
 from .call_flow import CallFlow
 from .connection import BoxIMConnection, InboundMessage, MSG_TYPE_TEXT
@@ -54,12 +56,19 @@ class BotRuntime:
         # 多账号时，每个 BOT 用自己的 BoxIMConfig；单账号时退回全局配置
         self.boxim = boxim or settings.boxim
 
-        self.persona: Persona = load_persona(settings.persona_file)
+        # 每个账号可以带自己的人设文件（多账号不同性格）；没配就用全局的
+        # 相对路径按项目根目录解析，避免受 systemd 工作目录影响
+        pf = getattr(self.boxim, "persona_file", "") or settings.persona_file
+        if pf and not Path(pf).is_absolute():
+            pf = str(Path(__file__).resolve().parent.parent.parent / pf)
+        self.persona_file = pf
+        self.persona: Persona = load_persona(pf)
         self.brain = Brain(settings, db)
         self.memory = MemoryStore(db, self.brain, settings)
         self.emotion = EmotionEngine(db, self.brain, settings)
         self.media = MediaService(db, settings.media)
         self.stickers = StickerService(db, settings)
+        self.tools = ToolKit(settings.tools, media=self.media)
         self.interest = InterestModel(db, self.persona, settings)
         self.account = AccountBehavior(db, self.persona, settings.humanize)
         self.output = OutputPlanner(settings.humanize, db)
@@ -80,6 +89,7 @@ class BotRuntime:
         self._last_sent: float = 0.0
         self._wake_flush_running = False
         self._last_forward_at: Dict[str, float] = {}
+        self._tool_quota: Dict[str, Tuple[str, int]] = {}   # bot_id → [日期, 次数]
 
     # ------------------------------------------------------------------
     # 启动
@@ -477,9 +487,13 @@ class BotRuntime:
                                                  chat_type, "user", merged_text)
                         return
 
+            # --- Agent 工具：需要查资料时先查，结果喂进回复 ---
+            tool_note = self._maybe_tool(merged_text, peer_id, msg.is_group)
+
             # --- 生成 ---
             mood = mood_of(st.emotion, __import__("datetime").datetime.now().hour)
-            reply = self._generate(st, merged_text, msgs, mood, chat_type, peer_id)
+            reply = self._generate(st, merged_text, msgs, mood, chat_type,
+                                   peer_id, tool_note=tool_note)
             if not reply:
                 return
 
@@ -511,7 +525,8 @@ class BotRuntime:
     # ------------------------------------------------------------------
 
     def _build_prompt(self, st: Any, user_text: str, msgs: List[InboundMessage],
-                      mood: str, chat_type: str, peer_id: int) -> str:
+                      mood: str, chat_type: str, peer_id: int,
+                      tool_note: str = "") -> str:
         """装配完整 system prompt（策划案 §3.6）。"""
         segs: List[str] = []
         segs.append(self.persona.base_prompt())
@@ -596,14 +611,20 @@ class BotRuntime:
 
         segs.append("")
         segs.append("【任务】")
+        if tool_note:
+            segs.append(f"【刚查到的资料】{tool_note}")
+            segs.append("上面的资料是你刚查的。回复时自然地把它用上，"
+                        "像你自己本来就知道一样；查到的东西跟聊天对不上就别硬扯。")
         segs.append(f'对方刚说："{user_text}"')
         segs.append("以你的身份回一条消息。只输出消息本身，不要引号，不要任何说明。"
                     "不要复述对方的话，不要总结对话。")
         return "\n".join(segs)
 
     def _generate(self, st: Any, user_text: str, msgs: List[InboundMessage],
-                  mood: str, chat_type: str, peer_id: int) -> str:
-        system = self._build_prompt(st, user_text, msgs, mood, chat_type, peer_id)
+                  mood: str, chat_type: str, peer_id: int,
+                  tool_note: str = "") -> str:
+        system = self._build_prompt(st, user_text, msgs, mood, chat_type,
+                                    peer_id, tool_note=tool_note)
         history = self.memory.working(self.bot_id, peer_id, chat_type)
         temperature = 0.92
         if mood in ("烦", "很烦，别惹我"):
@@ -730,6 +751,97 @@ class BotRuntime:
             "count": ok, "preview": truncate(desc, 80),
         })
         log.info("已把 %d 条消息转给 %s", ok, getattr(friend, "nick_name", friend.id))
+
+    # ------------------------------------------------------------------
+    # Agent 工具
+    # ------------------------------------------------------------------
+
+    def _tool_quota_ok(self) -> bool:
+        """每日调用配额，防刷。"""
+        tc = self.settings.tools
+        today = today_str()
+        used_day, used = self._tool_quota.get(str(self.bot_id), ("", 0))
+        if used_day != today:
+            used_day, used = today, 0
+        return used < int(tc.daily_limit)
+
+    def _tool_quota_used(self) -> None:
+        today = today_str()
+        used_day, used = self._tool_quota.get(str(self.bot_id), ("", 0))
+        if used_day != today:
+            used_day, used = today, 0
+        self._tool_quota[str(self.bot_id)] = (used_day, used + 1)
+
+    def _maybe_tool(self, user_text: str, peer_id: int, is_group: bool) -> str:
+        """让轻量决策 LLM 判断是否需要调用工具。返回注入 prompt 的资料文本。"""
+        tc = self.settings.tools
+        if not tc.enabled or not self.tools or not self.brain:
+            return ""
+        if not self._tool_quota_ok():
+            return ""
+
+        system = (
+            "你是工具调度器。判断要回复用户这条消息，是否必须先调用外部工具查资料。\n"
+            "可用工具：\n" + self.tools.specs_text() + "\n"
+            "另有 draw 工具：按描述画一张图，参数 {\"prompt\":\"画面描述\"}。\n\n"
+            "判断规则：\n"
+            "- 只有查了才能答对的才调用：实时天气、最新消息/新闻、热搜、汇率、"
+            "币价、翻译、词条解释、节假日、画图请求\n"
+            "- 闲聊、情绪、观点、日常问答、已经知道的事——一律不调用\n"
+            "- 一次最多调用一个工具；不确定就不调用\n"
+            "- 用户没让画图就不要用 draw\n\n"
+            "输出严格 JSON，不要多余文字：\n"
+            '{"tool":"工具名","args":{参数}} 或 {"tool":null,"args":{}}'
+        )
+        try:
+            res = self.brain.complete_json(
+                TASK_TOOL, system, truncate(user_text, 300),
+                temperature=0.1, max_tokens=tc.decision_max_tokens)
+        except Exception as exc:
+            log.debug("工具决策失败: %s", exc)
+            return ""
+        if not isinstance(res, dict):
+            return ""
+        name = str(res.get("tool") or "").strip()
+        if not name:
+            return ""
+        args = res.get("args") if isinstance(res.get("args"), dict) else {}
+
+        # 画图很慢，异步生成后直接把图发到会话里
+        if name == "draw":
+            prompt = str(args.get("prompt") or "").strip()
+            if not prompt:
+                return ""
+            self._tool_quota_used()
+            self.pool.submit(self._send_generated_image, peer_id, is_group, prompt)
+            log.info("画图任务已排入队列：%s", prompt[:60])
+            return "（你正在按需求画图，画好会直接发图片过去。回复时可以说稍等、正在画）"
+
+        if not self.tools.has(name):
+            return ""
+        self._tool_quota_used()
+        return self.tools.run(name, args)
+
+    def _send_generated_image(self, peer_id: int, is_group: bool,
+                              prompt: str) -> None:
+        """后台画图并发到会话。"""
+        if not self.conn or not self.media:
+            return
+        try:
+            path = self.media.generate(prompt)
+            if not path:
+                return
+            self.conn.send_image(peer_id, path, is_group=is_group)
+            conv_id = self.db.ensure_conversation(self.bot_id, peer_id,
+                                                  "group" if is_group else "private")
+            self.db.insert_message(self.bot_id, conv_id, "bot",
+                                   "[图片] " + truncate(prompt, 60), ts=now())
+            self.memory.push_working(self.bot_id, peer_id,
+                                     "group" if is_group else "private", "bot",
+                                     "[图片] " + truncate(prompt, 60))
+            log.info("画好的图已发送：%s", prompt[:60])
+        except Exception as exc:
+            log.warning("画图/发送失败: %s", exc)
 
     # ------------------------------------------------------------------
     # 反 AI 流水线

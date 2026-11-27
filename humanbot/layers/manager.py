@@ -8,6 +8,7 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..core import antiai
@@ -197,6 +198,14 @@ class BotManager:
                 return b
         return None
 
+    def _bot(self, bot_id: int = 0) -> Optional[BotRuntime]:
+        """按 id 取 BOT；0 或找不到时退回第一个。控制台多实例操作都走这里。"""
+        if bot_id:
+            for b in self._bots:
+                if b.bot_id == bot_id:
+                    return b
+        return self._first()
+
     def reload_settings(self) -> None:
         """重新加载配置（热更新）。"""
         from ..settings import Settings as _S
@@ -223,15 +232,28 @@ class BotManager:
         log.info("配置已热更新")
 
     def reload_persona(self) -> None:
-        p = load_persona(self.settings.persona_file)
+        """人设热更新：每个 BOT 从自己的人设文件重载。
+
+        多账号性格不同时，控制台改的是全局 persona_file，
+        只有跟全局文件一致的 BOT 才会跟着变，专属人设不受影响。
+        """
+        global_file = str(Path(self.settings.persona_file).resolve())
         for b in self._bots:
+            try:
+                p = load_persona(b.persona_file)
+            except Exception as exc:
+                log.warning("人设重载失败 bot=%s: %s", b.bot_id, exc)
+                continue
+            same_file = str(Path(b.persona_file).resolve()) == global_file
             b.persona = p
             b.account.persona = p
             if b.cycle:
-                b.cycle.active = bool(p.physio_enabled and self.settings.physio.enabled)
-        log.info("人设已热更新（gender=%s, physio=%s）", p.gender, p.physio_enabled)
-        BUS.publish("persona", {"event": "reloaded", "name": p.name,
-                                "physio_enabled": p.physio_enabled})
+                b.cycle.active = bool(p.physio_enabled
+                                      and self.settings.physio.enabled)
+            log.info("人设已重载 bot=%s：%s（%s）",
+                     b.bot_id, p.name,
+                     "全局" if same_file else "专属")
+        BUS.publish("persona", {"event": "reloaded"})
 
     # ------------------------------------------------------------------
     # 控制台动作
@@ -253,9 +275,10 @@ class BotManager:
                 return b.scheduler.is_muted(bot_id, chat_id, is_group)
         return False
 
-    def manual_send(self, peer_id: int, text: str, chat_type: str = "private") -> bool:
-        """控制台手动发消息（仍走拟人延迟）。"""
-        b = self._first()
+    def manual_send(self, peer_id: int, text: str, chat_type: str = "private",
+                    bot_id: int = 0) -> bool:
+        """控制台手动发消息（仍走拟人延迟）。bot_id=0 用第一个实例。"""
+        b = self._bot(bot_id)
         if b is None:
             return False
         st = b.emotion.state(b.bot_id, peer_id, chat_type)
@@ -263,8 +286,9 @@ class BotManager:
         return n > 0
 
     def manual_send_image(self, peer_id: int, prompt: str,
-                          chat_type: str = "private") -> Optional[str]:
-        b = self._first()
+                          chat_type: str = "private",
+                          bot_id: int = 0) -> Optional[str]:
+        b = self._bot(bot_id)
         if b is None or not b.conn:
             return None
         path = b.media.generate(prompt)
@@ -273,9 +297,10 @@ class BotManager:
         b.conn.send_image(peer_id, path, chat_type == "group")
         return path
 
-    def action(self, name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """执行控制台动作。"""
-        b = self._first()
+    def action(self, name: str, payload: Dict[str, Any],
+               bot_id: int = 0) -> Dict[str, Any]:
+        """执行控制台动作。bot_id=0 用第一个实例。"""
+        b = self._bot(bot_id or int(payload.get("bot_id") or 0))
         if b is None:
             return {"ok": False, "error": "BOT 未启动"}
         try:
@@ -395,9 +420,9 @@ class BotManager:
     # ------------------------------------------------------------------
 
     def preview(self, message: str, apply_emotion: bool = True,
-                apply_antiai: bool = True) -> Dict[str, Any]:
-        """人设编辑器的实时预览（带调试信息）。"""
-        b = self._first()
+                apply_antiai: bool = True, bot_id: int = 0) -> Dict[str, Any]:
+        """人设编辑器的实时预览（带调试信息）。bot_id=0 用第一个实例。"""
+        b = self._bot(bot_id)
         if b is None:
             return {"ok": False, "error": "BOT 未启动"}
 
@@ -459,15 +484,16 @@ class BotManager:
             if self.settings.model.provider_for(TASK_REPLY) else "",
         }
 
-    def sandbox(self, message: str, rounds: int = 1) -> Dict[str, Any]:
+    def sandbox(self, message: str, rounds: int = 1,
+                bot_id: int = 0) -> Dict[str, Any]:
         """沙盒：不连 IM，纯本地跑人格引擎。"""
-        b = self._first()
+        b = self._bot(bot_id)
         if b is None:
             return {"ok": False, "error": "BOT 未启动"}
         out: List[Dict[str, Any]] = []
         for i in range(max(1, min(rounds, 20))):
             res = self.preview(message + (f"（第{i + 1}次）" if rounds > 1 else ""),
-                               True, True)
+                               True, True, bot_id=b.bot_id)
             out.append(res)
         # 统计多样性
         texts = [r.get("final", "") for r in out if r.get("ok")]
